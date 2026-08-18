@@ -14,6 +14,7 @@ export * from './core/downloader.js';
 export * from './http/client.js';
 export * from './http/fetch-client.js';
 export * from './http/curl-client.js';
+export * from './http/tls-client.js';
 export * from './http/hybrid-client.js';
 
 // Providers

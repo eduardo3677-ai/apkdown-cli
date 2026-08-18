@@ -1,59 +1,54 @@
 import { HttpClient, HttpRequestOptions, HttpResponse } from './client.js';
+import { NativeTlsClient } from './tls-client.js';
 import { FetchClient } from './fetch-client.js';
-import { CurlClient } from './curl-client.js';
 
+/**
+ * Pure Node.js Hybrid Client combining Native TLS Impersonation (Chrome/Safari)
+ * with Node Fetch, with zero external dependencies and zero external python binaries.
+ */
 export class HybridClient implements HttpClient {
+  private tlsClient: NativeTlsClient;
   private fetchClient: FetchClient;
-  private curlClient: CurlClient;
 
-  // Domains known to require TLS fingerprinting / browser impersonation
-  private cloudflareDomains = [
+  // Domains requiring modern browser TLS ciphers / headers
+  private tlsPreferredDomains = [
     'apkmirror.com',
     'apkpure.com',
     'apkpure.net',
     'apkcombo.com',
     'd.apkpure.com',
+    'appimg-drcn.dbankcdn.com',
   ];
 
   constructor() {
+    this.tlsClient = new NativeTlsClient();
     this.fetchClient = new FetchClient();
-    this.curlClient = new CurlClient();
   }
 
-  private shouldUseCurl(url: string, options?: HttpRequestOptions): boolean {
+  private isTlsPreferred(url: string, options?: HttpRequestOptions): boolean {
     if (options?.impersonate) return true;
     const lower = url.toLowerCase();
-    return this.cloudflareDomains.some((d) => lower.includes(d));
+    return this.tlsPreferredDomains.some((d) => lower.includes(d));
   }
 
   public async request<T = any>(url: string, options: HttpRequestOptions = {}): Promise<HttpResponse<T>> {
-    if (this.shouldUseCurl(url, options)) {
+    if (this.isTlsPreferred(url, options)) {
       try {
-        return await this.curlClient.request<T>(url, options);
-      } catch (curlErr) {
-        // Fallback to fetch if curl bridge failed
+        return await this.tlsClient.request<T>(url, options);
+      } catch (tlsErr) {
+        // Fallback to fetch client if TLS client failed
         try {
           return await this.fetchClient.request<T>(url, options);
         } catch {
-          throw curlErr;
+          throw tlsErr;
         }
       }
     }
 
     try {
-      const res = await this.fetchClient.request<T>(url, options);
-      // If Cloudflare block detected (403 forbidden with cf challenge)
-      if (res.status === 403 || res.status === 503) {
-        return await this.curlClient.request<T>(url, { ...options, impersonate: 'safari_ios' });
-      }
-      return res;
-    } catch (fetchErr: any) {
-      // If fetch failed, try curl client
-      try {
-        return await this.curlClient.request<T>(url, { ...options, impersonate: 'safari_ios' });
-      } catch {
-        throw fetchErr;
-      }
+      return await this.fetchClient.request<T>(url, options);
+    } catch {
+      return await this.tlsClient.request<T>(url, options);
     }
   }
 
@@ -71,18 +66,10 @@ export class HybridClient implements HttpClient {
     options: HttpRequestOptions = {},
     onProgress?: (bytesWritten: number, totalBytes: number) => void
   ): Promise<{ filePath: string; bytesWritten: number; totalBytes: number; finalUrl: string }> {
-    if (this.shouldUseCurl(url, options)) {
-      try {
-        return await this.curlClient.downloadFile(url, destPath, options, onProgress);
-      } catch {
-        return await this.fetchClient.downloadFile(url, destPath, options, onProgress);
-      }
-    }
-
     try {
-      return await this.fetchClient.downloadFile(url, destPath, options, onProgress);
+      return await this.tlsClient.downloadFile(url, destPath, options, onProgress);
     } catch {
-      return await this.curlClient.downloadFile(url, destPath, options, onProgress);
+      return await this.fetchClient.downloadFile(url, destPath, options, onProgress);
     }
   }
 }
