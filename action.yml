@@ -50,22 +50,22 @@ inputs:
 outputs:
   file-path:
     description: 'Absolute path to the downloaded APK/XAPK file'
-    value: ${{ steps.download.outputs.file_path }}
+    value: ${{ steps.download.outputs.file-path }}
   file-name:
     description: 'File name of the downloaded APK'
-    value: ${{ steps.download.outputs.file_name }}
+    value: ${{ steps.download.outputs.file-name }}
   file-size:
     description: 'Size of the downloaded file in bytes'
-    value: ${{ steps.download.outputs.file_size }}
+    value: ${{ steps.download.outputs.file-size }}
   file-size-formatted:
     description: 'Formatted file size (e.g. 80.4 MB)'
-    value: ${{ steps.download.outputs.file_size_formatted }}
+    value: ${{ steps.download.outputs.file-size-formatted }}
   version:
     description: 'Downloaded application version'
     value: ${{ steps.download.outputs.version }}
   package-type:
     description: 'Package format (APK, XAPK, APKM)'
-    value: ${{ steps.download.outputs.package_type }}
+    value: ${{ steps.download.outputs.package-type }}
   sha256:
     description: 'SHA-256 hash of the downloaded file'
     value: ${{ steps.download.outputs.sha256 }}
@@ -92,7 +92,12 @@ runs:
         python -m pip install --upgrade pip
         pip install curl_cffi
 
-    - name: Execute APKDown Action Runner
+    - name: Install APKDown CLI
+      shell: bash
+      run: |
+        npm install -g @eduardo3677-ai/apkdown-cli@latest
+
+    - name: Execute APKDown Action
       id: download
       shell: bash
       env:
@@ -107,4 +112,4 @@ runs:
         INPUT_FILENAME: ${{ inputs.filename }}
         INPUT_VERIFY_CHECKSUM: ${{ inputs.verify-checksum }}
       run: |
-        node ${{ github.action_path }}/scripts/action-runner.js
+        apkdown
