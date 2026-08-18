@@ -7,7 +7,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg?style=flat-square)](https://www.typescriptlang.org/)
 [![Build & Test](https://img.shields.io/github/actions/workflow/status/eduardo3677-ai/apkdown-cli/publish.yml?branch=main&style=flat-square)](https://github.com/eduardo3677-ai/apkdown-cli/actions)
 
-> **CLI profesional, Interfaz TUI y GitHub Action para buscar, comparar versiones entre múltiples fuentes y descargar paquetes APK, XAPK, APKM y Split Bundles de Android con filtrado de arquitecturas de CPU y canales Beta / Preview / Insider.**
+> **CLI profesional, Interfaz TUI interactiva y GitHub Action para Marketplace diseñada para buscar, comparar versiones entre múltiples fuentes y descargar paquetes APK, XAPK, APKM y Split Bundles de Android con filtrado de arquitecturas de CPU y canales Beta / Preview / Insider.**
 
 ---
 
@@ -28,12 +28,15 @@
 
 ## 🤖 Uso en GitHub Actions (Marketplace)
 
-Puedes usar esta herramienta como un paso nativo en tus flujos de trabajo de GitHub Actions:
+Puedes utilizar la action en cualquier repositorio de GitHub simplemente agregando el paso `uses: eduardo3677-ai/apkdown-cli@v1`:
 
 ```yaml
-name: Download Android APK
+name: Download and Release Android APK
 
-on: [push, workflow_dispatch]
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
 
 jobs:
   download-apk:
@@ -50,13 +53,17 @@ jobs:
           provider: 'all'
           exclude-provider: 'appgallery'
           arch: 'arm64-v8a'
+          channel: 'stable'
           output-dir: './artifacts'
 
-      - name: Print Download Info
+      - name: Print Download Outputs
         run: |
-          echo "Archivo descargado: ${{ steps.apkdown.outputs.file-path }}"
-          echo "Versión: ${{ steps.apkdown.outputs.version }}"
-          echo "SHA256: ${{ steps.apkdown.outputs.sha256 }}"
+          echo "Archivo:   ${{ steps.apkdown.outputs.file-path }}"
+          echo "Versión:   ${{ steps.apkdown.outputs.version }}"
+          echo "Formato:   ${{ steps.apkdown.outputs.package-type }}"
+          echo "Tamaño:    ${{ steps.apkdown.outputs.file-size-formatted }}"
+          echo "SHA-256:   ${{ steps.apkdown.outputs.sha256 }}"
+          echo "Proveedor: ${{ steps.apkdown.outputs.provider }}"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -65,34 +72,41 @@ jobs:
           path: ${{ steps.apkdown.outputs.file-path }}
 ```
 
-### Opciones del GitHub Action (`with`):
+---
 
-| Entrada | Descripción | Por Defecto |
-|:---|:---|:---:|
-| `id` | Nombre de app, package identifier (ej. `com.whatsapp`, `org.telegram.messenger`) o repo | **Requerido** |
-| `provider` | Proveedores autorizados separados por coma (`all`, `apkmirror`, `apkpure`, etc.) | `all` |
-| `exclude-provider` | Proveedores a excluir separados por coma (ej. `appgallery,aptoide`) | `""` |
-| `arch` | Arquitectura de CPU objetivo (`auto`, `arm64-v8a`, `armeabi-v7a`, `universal`) | `auto` |
-| `version` | Versión específica a descargar o `"latest"` | `latest` |
-| `channel` | Canal de lanzamiento: `stable`, `beta`, `alpha`, `insider`, `preview`, `all` | `stable` |
-| `allow-beta` | Permitir versiones beta o previas (`true` / `false`) | `false` |
-| `output-dir` | Directorio de destino para guardar el APK | `./downloads` |
-| `filename` | Nombre de archivo personalizado | `""` |
-| `verify-checksum` | Verificar hash SHA256/MD5 si está disponible | `true` |
+### 📋 Tabla Completa de Parámetros de la GitHub Action (`with`):
 
-### Salidas del GitHub Action (`outputs`):
-- `file-path`: Ruta absoluta del archivo descargado.
-- `file-name`: Nombre del archivo descargado.
-- `file-size`: Tamaño en bytes.
-- `file-size-formatted`: Tamaño legible (ej. `80.4 MB`).
-- `version`: Versión resuelta del paquete.
-- `package-type`: Formato (`APK`, `XAPK`, `APKM`).
-- `sha256`: Hash SHA-256 del binario.
-- `provider`: Proveedor de donde se descargó.
+| Parámetro | Tipo | Requerido | Por Defecto | Valores Permitidos / Descripción |
+|:---|:---:|:---:|:---:|:---|
+| `id` | `string` | **Sí** | - | Nombre de la app, package ID (ej. `org.telegram.messenger`, `com.whatsapp`) o repositorio GitHub (`ReVanced/revanced-manager`). |
+| `provider` | `string` | No | `all` | Proveedor o lista de proveedores permitidos separados por coma: `aptoide`, `apkmirror`, `apkpure`, `apkcombo`, `fdroid`, `izzyondroid`, `github`, `appgallery`, `all`. |
+| `exclude-provider` | `string` | No | `""` | Proveedores a deshabilitar/excluir separados por coma (ej. `appgallery,aptoide`). |
+| `arch` | `string` | No | `auto` | Arquitectura de CPU objetivo: `auto`, `arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`, `universal`, `all`. |
+| `version` | `string` | No | `latest` | Versión específica a descargar (ej. `12.9.2`) o `"latest"` para la última disponible. |
+| `channel` | `string` | No | `stable` | Canal de lanzamiento: `stable`, `beta`, `alpha`, `insider`, `preview`, `all`. |
+| `allow-beta` | `boolean` | No | `false` | Habilita la descarga de versiones Beta / Preview / Prerelease. |
+| `output-dir` | `string` | No | `./downloads` | Directorio donde se guardará el archivo descargado. |
+| `filename` | `string` | No | `""` | Nombre personalizado para el archivo guardado (opcional). |
+| `verify-checksum` | `boolean` | No | `true` | Valida automáticamente los hashes criptográficos (SHA-256 / MD5). |
 
 ---
 
-## 📦 Instalación del CLI
+### 📤 Salidas Generadas por la GitHub Action (`outputs`):
+
+| Salida | Tipo | Descripción | Ejemplo |
+|:---|:---:|:---|:---|
+| `file-path` | `string` | Ruta absoluta al binario descargado | `/home/runner/work/app/artifacts/Telegram_v12.10.0_universal_apkmirror.apk` |
+| `file-name` | `string` | Nombre del archivo generado | `Telegram_v12.10.0_universal_apkmirror.apk` |
+| `file-size` | `number` | Tamaño exacto en bytes | `84284065` |
+| `file-size-formatted` | `string` | Tamaño legible para humanos | `80.38 MB` |
+| `version` | `string` | Versión resuelta del paquete | `12.10.0` |
+| `package-type` | `string` | Formato del paquete descargado | `APK`, `XAPK`, `APKM` |
+| `sha256` | `string` | Hash SHA-256 del archivo | `f8b40c25166fa5b4ba2249f092ca08c...` |
+| `provider` | `string` | Proveedor del cual se descargó | `apkmirror` |
+
+---
+
+## 📦 Instalación y Uso de la CLI
 
 ### Instalación Global
 ```bash
@@ -115,7 +129,7 @@ apkdown tui
 # 2. Descarga automática de la última versión comparando todos los proveedores
 apkdown download org.telegram.messenger -o ./mis-apks
 
-# 3. Descargar excluyendo proveedores específicos
+# 3. Descargar excluyendo proveedores específicos y seleccionando arquitectura
 apkdown download telegram -x appgallery,aptoide -a arm64-v8a -o ./mis-apks
 
 # 4. Buscar aplicaciones con filtro de arquitectura y canal Beta
@@ -173,6 +187,16 @@ const downloadResult = await downloadApk('all', 'org.telegram.messenger', {
 console.log('Descargado en:', downloadResult.filePath);
 console.log('SHA-256:', downloadResult.sha256);
 ```
+
+---
+
+## 🔄 Sistema de Versionado y Publicación Sincronizada
+
+El flujo de trabajo en `.github/workflows/publish.yml` gestiona automáticamente la sincronización:
+1. **Detección y Auto-Bump:** Comprueba si la versión ya existe en NPM; si es necesario, incrementa automáticamente la versión (`patch` / `minor` / `major`).
+2. **Commit y Push Automático:** Hace commit de `package.json` y `package-lock.json` al repositorio en `main`.
+3. **Pull y Compilación Sincronizada:** Ejecuta `git pull --rebase` y compila los bundles con `npm run build`.
+4. **Publicación Sincronizada:** Publica el paquete en el registro de NPM (`@eduardo3677-ai/apkdown-cli`) y crea el Release correspondiente en GitHub con el tag de versión exacta (ej. `v1.0.1`) y el tag flotante mayor `v1`.
 
 ---
 

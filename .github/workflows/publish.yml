@@ -4,12 +4,10 @@ on:
   push:
     branches:
       - main
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       bump:
-        description: 'Version bump type (patch, minor, major) or specific version'
+        description: 'Version bump type (patch, minor, major, none)'
         required: false
         default: 'patch'
         type: choice
@@ -64,19 +62,19 @@ jobs:
         run: npm run build
 
   release-and-publish:
-    name: Release & Publish to NPM and GitHub Marketplace
+    name: Auto Version, Release & Publish to NPM and Marketplace
     needs: validate
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    if: github.ref == 'refs/heads/main'
 
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup Git User
+      - name: Configure Git Identity
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -92,71 +90,82 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Python Dependencies
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install curl_cffi
+          npm ci || npm install
 
-      - name: Install Node Dependencies
-        run: npm ci || npm install
-
-      - name: Compile Package Bundle
-        run: npm run build
-
-      - name: Handle Version Bump (if requested via dispatch)
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.bump != 'none'
+      - name: Automated Version Bump & Commit
+        id: version_bump
         run: |
-          npm version ${{ github.event.inputs.bump }} --no-git-tag-version
-          NEW_VERSION=$(node -p "require('./package.json').version")
-          git add package.json package-lock.json
-          git commit -m "chore(release): bump version to v${NEW_VERSION}" || true
-          git push origin main || true
+          CURRENT_LOCAL_VER=$(node -p "require('./package.json').version")
+          NPM_REMOTE_VER=$(npm view @eduardo3677-ai/apkdown-cli version 2>/dev/null || echo "0.0.0")
 
-      - name: Extract Current Version
-        id: get_version
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          MAJOR_VERSION=$(echo "$VERSION" | cut -d. -f1)
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "tag=v${VERSION}" >> $GITHUB_OUTPUT
+          echo "Current Local Version:  ${CURRENT_LOCAL_VER}"
+          echo "Current Remote Version: ${NPM_REMOTE_VER}"
+
+          BUMP_TYPE="${{ github.event.inputs.bump }}"
+          
+          # If version is already on NPM or manual bump requested, bump to next version
+          if [ "$CURRENT_LOCAL_VER" = "$NPM_REMOTE_VER" ] || [ -n "$BUMP_TYPE" -a "$BUMP_TYPE" != "none" ]; then
+            TARGET_BUMP="${BUMP_TYPE:-patch}"
+            echo "Auto-bumping version with: ${TARGET_BUMP}..."
+            npm version "$TARGET_BUMP" --no-git-tag-version
+            NEW_VER=$(node -p "require('./package.json').version")
+            
+            git add package.json package-lock.json
+            git commit -m "chore(release): bump version to v${NEW_VER} [skip ci]"
+            git push origin main
+          fi
+
+          # Pull latest commits to ensure synchronous tree
+          git pull origin main --rebase
+
+          FINAL_VERSION=$(node -p "require('./package.json').version")
+          MAJOR_VERSION=$(echo "$FINAL_VERSION" | cut -d. -f1)
+
+          echo "version=${FINAL_VERSION}" >> $GITHUB_OUTPUT
+          echo "tag=v${FINAL_VERSION}" >> $GITHUB_OUTPUT
           echo "major_tag=v${MAJOR_VERSION}" >> $GITHUB_OUTPUT
+          echo "Resolved release version: v${FINAL_VERSION}"
+
+      - name: Compile Distribution Bundle with New Version
+        run: npm run build
 
       - name: Publish to NPM Registry (@eduardo3677-ai/apkdown-cli)
         run: |
-          # Publish if version is not yet published
-          CURRENT_PKG_VER=$(node -p "require('./package.json').version")
-          NPM_REMOTE_VER=$(npm view @eduardo3677-ai/apkdown-cli version 2>/dev/null || echo "none")
-          
-          if [ "$CURRENT_PKG_VER" != "$NPM_REMOTE_VER" ]; then
-            echo "Publishing version ${CURRENT_PKG_VER} to NPM..."
+          FINAL_VERSION="${{ steps.version_bump.outputs.version }}"
+          NPM_REMOTE_VER=$(npm view @eduardo3677-ai/apkdown-cli version 2>/dev/null || echo "0.0.0")
+
+          if [ "$FINAL_VERSION" != "$NPM_REMOTE_VER" ]; then
+            echo "Publishing @eduardo3677-ai/apkdown-cli@${FINAL_VERSION} to NPM..."
             npm publish --access public
           else
-            echo "Version ${CURRENT_PKG_VER} is already published to NPM. Skipping publish."
+            echo "Version ${FINAL_VERSION} already published to NPM."
           fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
 
-      - name: Create or Update Git Tags and GitHub Release (Marketplace)
+      - name: Tag Git Version and Publish GitHub Marketplace Release
         run: |
-          TAG="${{ steps.get_version.outputs.tag }}"
-          MAJOR_TAG="${{ steps.get_version.outputs.major_tag }}"
-          VERSION="${{ steps.get_version.outputs.version }}"
+          TAG="${{ steps.version_bump.outputs.tag }}"
+          MAJOR_TAG="${{ steps.version_bump.outputs.major_tag }}"
+          VERSION="${{ steps.version_bump.outputs.version }}"
 
-          echo "Target tag: ${TAG}, Major tag: ${MAJOR_TAG}"
+          echo "Creating Git Tag ${TAG} and updating major tag ${MAJOR_TAG}..."
 
-          # Create release tag if not exists
-          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
-            git tag -a "$TAG" -m "Release ${TAG}"
-            git push origin "$TAG"
-          fi
+          # Create or update specific release tag
+          git tag -fa "$TAG" -m "Release ${TAG}"
+          git push origin "$TAG" --force
 
           # Update floating major tag (e.g. v1) to point to the latest release
           git tag -fa "$MAJOR_TAG" -m "Update ${MAJOR_TAG} tag to ${TAG}"
           git push origin "$MAJOR_TAG" --force
 
           # Create or update GitHub Release for Marketplace
-          gh release view "$TAG" || gh release create "$TAG" \
-            --title "APKDown ${TAG} - Multi-Source Android APK Downloader" \
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" \
+            --title "APKDown ${TAG} - Multi-Source Android APK Downloader & GitHub Action" \
             --generate-notes \
             --latest
         env:
