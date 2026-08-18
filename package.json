@@ -1,6 +1,6 @@
 {
   "name": "@eduardo3677-ai/apkdown-cli",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Professional Multi-Source Android APK, XAPK, and Split Bundle Downloader CLI & Interactive TUI with Automatic Multi-Provider Version Comparison, Architecture Filtering, and Beta/Preview Releases",
   "type": "module",
   "main": "./dist/index.js",
