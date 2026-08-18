@@ -18,6 +18,10 @@ export class HybridClient implements HttpClient {
     'apkcombo.com',
     'd.apkpure.com',
     'appimg-drcn.dbankcdn.com',
+    'fdroid.org',
+    'apt.izzysoft.de',
+    'aptoide.com',
+    'pool.img.aptoide.com',
   ];
 
   constructor() {
@@ -68,8 +72,15 @@ export class HybridClient implements HttpClient {
   ): Promise<{ filePath: string; bytesWritten: number; totalBytes: number; finalUrl: string }> {
     try {
       return await this.tlsClient.downloadFile(url, destPath, options, onProgress);
-    } catch {
-      return await this.fetchClient.downloadFile(url, destPath, options, onProgress);
+    } catch (tlsErr: any) {
+      try {
+        return await this.fetchClient.downloadFile(url, destPath, options, onProgress);
+      } catch (fetchErr: any) {
+        if (tlsErr.message && tlsErr.message.includes('403')) {
+          console.error(`Download failed with 403 on both TLS and Fetch clients for URL: ${url}`);
+        }
+        throw tlsErr;
+      }
     }
   }
 }

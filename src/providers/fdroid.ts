@@ -20,7 +20,39 @@ export class FDroidProvider extends BaseProvider {
   private searchUrl = 'https://search.f-droid.org';
 
   public async search(query: string, options: ProviderSearchOptions = {}): Promise<AppSearchResult[]> {
-    const url = `${this.searchUrl}/?q=${encodeURIComponent(query)}&lang=en`;
+    const cleanQuery = query.trim();
+    const isPackageQuery = /^[a-zA-Z][a-zA-Z0-9_]*\.[a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+)*$/.test(cleanQuery);
+
+    // 1. For exact package queries, try the direct API first for accurate version info
+    if (isPackageQuery) {
+      try {
+        const apiUrl = `${this.baseUrl}/api/v1/packages/${encodeURIComponent(cleanQuery)}`;
+        const apiRes = await this.http.get(apiUrl, { responseType: 'json' });
+        const data = apiRes.data;
+
+        if (data && data.packageName) {
+          const topPkg = data.packages?.[0];
+          const version = topPkg?.versionName || 'Latest';
+
+          return [{
+            id: data.packageName,
+            name: data.name || data.packageName.split('.').pop() || data.packageName,
+            packageName: data.packageName,
+            developer: data.authorName || 'F-Droid FOSS Community',
+            version,
+            iconUrl: data.icon ? `${this.baseUrl}/repo/icons-640/${data.icon}` : undefined,
+            description: data.summary || data.description || `${data.name || data.packageName} on F-Droid`,
+            provider: this.name,
+            sourceUrl: `${this.baseUrl}/en/packages/${data.packageName}/`,
+          }];
+        }
+      } catch {
+        // Package not found in F-Droid, fall through to search
+      }
+    }
+
+    // 2. Fall back to web search
+    const url = `${this.searchUrl}/?q=${encodeURIComponent(cleanQuery)}&lang=en`;
 
     try {
       const res = await this.http.get(url, { responseType: 'text' });
@@ -39,10 +71,13 @@ export class FDroidProvider extends BaseProvider {
         const iconElem = item.find('.package-icon').first();
         const iconUrl = iconElem.attr('src');
 
+        // Extract version from the version element, filtering out license-like strings
+        const verElem = item.find('.package-version, .version').first().text().trim();
+        const verMatch = verElem.match(/^(\d+(\.\d+)+[a-zA-Z0-9.\-_]*)$/);
+        // Fallback to general text but be strict about format to avoid license strings like "3.0-only"
         const itemText = item.text().replace(/\s+/g, ' ').trim();
-        const verMatch = item.find('.package-version, .version').first().text().trim().match(/(\d+(\.\d+)+[a-zA-Z0-9.\-_]*)/) ||
-          itemText.match(/(?:version|v)?\s*(\d+(\.\d+)+[a-zA-Z0-9.\-_]*)/i);
-        const version = verMatch ? verMatch[1] : 'Latest';
+        const altVerMatch = itemText.match(/(?:version|v)\s*(\d+(\.\d+)+[a-zA-Z0-9.\-_]*)/i);
+        const version = verMatch ? verMatch[1] : (altVerMatch ? altVerMatch[1] : 'Latest');
 
         results.push({
           id: packageName,
@@ -89,7 +124,8 @@ export class FDroidProvider extends BaseProvider {
         const architecture = normalizeArch(archStr);
         const versionName = p.versionName || `v${p.versionCode}`;
         const { isBeta, channel } = detectReleaseChannel(versionName);
-        const apkFile = p.apkName || `${data.packageName}_${p.versionCode}.apk`;
+        // Always construct APK filename from packageName + versionCode (apkName may be undefined)
+        const apkFile = `${data.packageName}_${p.versionCode}.apk`;
 
         return {
           id: `fdroid-${architecture}-${p.versionCode || idx}`,

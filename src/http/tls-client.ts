@@ -84,6 +84,8 @@ export class NativeTlsClient implements HttpClient {
     // For file downloads, don't request double compression
     if (!isDownload) {
       headers['Accept-Encoding'] = 'gzip, deflate, br';
+    } else {
+      headers['Accept-Encoding'] = 'identity';
     }
 
     if (!isMobile) {
@@ -147,7 +149,8 @@ export class NativeTlsClient implements HttpClient {
   public async request<T = any>(
     url: string,
     options: HttpRequestOptions = {},
-    redirectCount = 0
+    redirectCount = 0,
+    retryOn403Count = 0
   ): Promise<HttpResponse<T>> {
     if (redirectCount > 10) {
       throw new ApkDownError('Too many redirects', 'REDIRECT_LOOP');
@@ -201,6 +204,14 @@ export class NativeTlsClient implements HttpClient {
 
           // Handle Redirects
           const statusCode = res.statusCode || 200;
+
+          if (statusCode === 403 && retryOn403Count === 0) {
+            res.resume();
+            return setTimeout(() => {
+              resolve(this.request<T>(url, options, redirectCount, 1));
+            }, 500);
+          }
+
           if (
             (statusCode === 301 || statusCode === 302 || statusCode === 303 || statusCode === 307 || statusCode === 308) &&
             res.headers.location &&
@@ -261,7 +272,25 @@ export class NativeTlsClient implements HttpClient {
             });
           });
 
-          stream.on('error', (err) => reject(new ApkDownError(`Stream decompression error: ${err.message}`, 'STREAM_ERROR', err)));
+          stream.on('error', (err) => {
+            if (statusCode >= 400) {
+              const responseHeaders: Record<string, string> = {};
+              Object.entries(res.headers).forEach(([k, v]) => {
+                if (v !== undefined) {
+                  responseHeaders[k.toLowerCase()] = Array.isArray(v) ? v.join(', ') : v;
+                }
+              });
+              resolve({
+                status: statusCode,
+                statusText: res.statusMessage,
+                headers: responseHeaders,
+                data: Buffer.concat(chunks).toString('utf-8') as any,
+                finalUrl: parsedUrl.toString(),
+              });
+            } else {
+              reject(new ApkDownError(`Stream decompression error: ${err.message}`, 'STREAM_ERROR', err));
+            }
+          });
         }
       );
 
@@ -294,7 +323,8 @@ export class NativeTlsClient implements HttpClient {
     destPath: string,
     options: HttpRequestOptions = {},
     onProgress?: (bytesWritten: number, totalBytes: number) => void,
-    redirectCount = 0
+    redirectCount = 0,
+    retryOn403Count = 0
   ): Promise<{ filePath: string; bytesWritten: number; totalBytes: number; finalUrl: string }> {
     if (redirectCount > 10) {
       throw new DownloadError('Too many redirects during download');
@@ -322,6 +352,26 @@ export class NativeTlsClient implements HttpClient {
           this.saveCookies(parsedUrl.hostname, res.headers['set-cookie']);
 
           const statusCode = res.statusCode || 200;
+
+          if (statusCode === 403 && retryOn403Count === 0) {
+            res.resume();
+            try {
+              await this.request(url, { ...options, method: 'HEAD' });
+            } catch (e) {
+              // ignore head error
+            }
+            return resolve(
+              this.downloadFile(
+                url,
+                destPath,
+                { ...options, headers: { ...options.headers, Referer: parsedUrl.toString() } },
+                onProgress,
+                redirectCount,
+                1
+              )
+            );
+          }
+
           if (
             (statusCode === 301 || statusCode === 302 || statusCode === 303 || statusCode === 307 || statusCode === 308) &&
             res.headers.location

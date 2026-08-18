@@ -77,8 +77,8 @@ export class AptoideProvider extends BaseProvider {
           continue;
         }
 
-        // If package query, ensure package prefix matches
-        if (isPackageQuery && !pkg.toLowerCase().includes(cleanQuery.toLowerCase()) && !cleanQuery.toLowerCase().includes(pkg.toLowerCase())) {
+        // If package query, ensure exact package matches ideally
+        if (isPackageQuery && pkg.toLowerCase() !== cleanQuery.toLowerCase()) {
           continue;
         }
 
@@ -117,13 +117,23 @@ export class AptoideProvider extends BaseProvider {
 
     const url = `${this.baseUrl}/app/get/package_name=${encodeURIComponent(cleanPkg)}`;
 
+    let meta;
     try {
       const res = await this.http.get(url, { responseType: 'json' });
-      const meta = res.data?.nodes?.meta?.data;
+      meta = res.data?.nodes?.meta?.data;
+    } catch (err: any) {
+      if (err.status === 404 || err.response?.status === 404 || err.message?.includes('404')) {
+        meta = null;
+      } else {
+        throw new ProviderError(this.name, `Failed to retrieve app details: ${err.message}`, err);
+      }
+    }
 
+    try {
       if (!meta) {
         // Fallback search by package name
-        const searchResults = await this.search(cleanPkg, { limit: 3 });
+        const fallbackQuery = cleanPkg.includes('.') ? cleanPkg.split('.').pop()! : cleanPkg;
+        const searchResults = await this.search(fallbackQuery, { limit: 3 });
         const app = searchResults.find((r) => r.packageName.toLowerCase() === cleanPkg.toLowerCase()) || searchResults[0];
         if (!app) {
           throw new ProviderError(this.name, `App "${cleanPkg}" not found on Aptoide`);
@@ -199,6 +209,7 @@ export class AptoideProvider extends BaseProvider {
         downloads: meta.stats?.downloads || meta.stats?.pdownloads,
       };
     } catch (err: any) {
+      if (err instanceof ProviderError) throw err;
       throw new ProviderError(this.name, `Failed to retrieve app details: ${err.message}`, err);
     }
   }
