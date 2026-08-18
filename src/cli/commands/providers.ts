@@ -8,12 +8,12 @@ import { renderProvidersTable } from '../ui/table.js';
 
 export const providersCommand = new Command('providers')
   .alias('p')
-  .description('List and manage APK providers and status')
+  .description('List, manage, and test APK providers')
   .option('-e, --enable <provider>', 'Enable a specific provider')
   .option('-d, --disable <provider>', 'Disable a specific provider')
+  .option('-t, --test [provider]', 'Test connectivity and health of all or a specific provider')
+  .option('--json', 'Output provider list or health test in JSON format', false)
   .action(async (options: any) => {
-    const config = configManager.getAll();
-
     if (options.enable) {
       const pName = options.enable.toLowerCase() as keyof ApkDownConfig['providers'];
       configManager.setProvider(pName, true);
@@ -29,70 +29,53 @@ export const providersCommand = new Command('providers')
     const currentConfig = configManager.getAll();
     const providers = providerRegistry.getAll();
 
+    if (options.test !== undefined) {
+      logger.info('Testing provider connectivity and search response latency...\n');
+      const targetList = typeof options.test === 'string'
+        ? providers.filter((p) => p.name.toLowerCase() === options.test.toLowerCase())
+        : providers;
+
+      const healthResults: Array<{ name: string; status: string; latencyMs: number; error?: string }> = [];
+
+      for (const p of targetList) {
+        const start = Date.now();
+        try {
+          const results = await p.search('telegram', { limit: 1 });
+          const latency = Date.now() - start;
+          healthResults.push({
+            name: p.name,
+            status: results.length > 0 ? 'healthy' : 'empty_results',
+            latencyMs: latency,
+          });
+          console.log(`  ${pc.green('✔')} ${pc.bold(p.name.padEnd(14))} ${pc.green('ONLINE')} (${latency}ms, returned ${results.length} results)`);
+        } catch (err: any) {
+          const latency = Date.now() - start;
+          healthResults.push({
+            name: p.name,
+            status: 'unreachable',
+            latencyMs: latency,
+            error: err.message,
+          });
+          console.log(`  ${pc.red('✖')} ${pc.bold(p.name.padEnd(14))} ${pc.red('OFFLINE')} (${err.message})`);
+        }
+      }
+
+      if (options.json) {
+        console.log(JSON.stringify(healthResults, null, 2));
+      }
+      return;
+    }
+
+    if (options.json) {
+      const data = providers.map((p) => ({
+        name: p.name,
+        homepage: p.homepage,
+        enabled: (currentConfig.providers as Record<string, boolean>)[p.name] !== false,
+      }));
+      console.log(JSON.stringify(data, null, 2));
+      return;
+    }
+
     console.log('\n' + pc.bold('Available APK Providers:') + '\n');
     console.log(renderProvidersTable(providers, currentConfig.providers) + '\n');
-  });
-
-export const configCommand = new Command('config')
-  .alias('c')
-  .description('View and update apkdown-cli configuration options')
-  .argument('[action]', 'Action to perform: get, set, list, reset', 'list')
-  .argument('[key]', 'Configuration key to read or update')
-  .argument('[value]', 'New value to assign')
-  .action(async (action: string, key?: string, value?: string) => {
-    const config = configManager.getAll();
-
-    switch (action.toLowerCase()) {
-      case 'list': {
-        console.log('\n' + pc.bold('Current Configuration:') + '\n');
-        console.log(`Config file: ${pc.dim(configManager.getConfigFilePath())}\n`);
-        Object.entries(config).forEach(([k, v]) => {
-          if (typeof v === 'object') {
-            console.log(`${pc.cyan(k)}:`);
-            Object.entries(v as Record<string, any>).forEach(([subK, subV]) => {
-              console.log(`  ${pc.dim(subK)}: ${subV ? pc.green(String(subV)) : pc.red(String(subV))}`);
-            });
-          } else {
-            console.log(`${pc.cyan(k)}: ${pc.bold(String(v))}`);
-          }
-        });
-        console.log('\n');
-        break;
-      }
-
-      case 'get': {
-        if (!key) {
-          logger.error('Please specify a configuration key. E.g.: apkdown config get downloadDir');
-          return;
-        }
-        const val = configManager.get(key as keyof ApkDownConfig);
-        console.log(`${pc.cyan(key)} = ${pc.bold(JSON.stringify(val))}`);
-        break;
-      }
-
-      case 'set': {
-        if (!key || value === undefined) {
-          logger.error('Please specify key and value. E.g.: apkdown config set preferredArch arm64-v8a');
-          return;
-        }
-
-        let parsedVal: any = value;
-        if (value === 'true') parsedVal = true;
-        else if (value === 'false') parsedVal = false;
-        else if (!isNaN(Number(value))) parsedVal = Number(value);
-
-        configManager.set(key as keyof ApkDownConfig, parsedVal);
-        logger.success(`Set ${pc.cyan(key)} = ${pc.bold(String(value))}`);
-        break;
-      }
-
-      case 'reset': {
-        configManager.reset();
-        logger.success('Configuration reset to default settings.');
-        break;
-      }
-
-      default:
-        logger.error(`Unknown action "${action}". Use get, set, list, or reset.`);
-    }
   });

@@ -2,9 +2,10 @@ import { Command } from 'commander';
 import { searchCommand } from './commands/search.js';
 import { downloadCommand } from './commands/download.js';
 import { infoCommand, versionsCommand } from './commands/info.js';
-import { providersCommand, configCommand } from './commands/providers.js';
+import { providersCommand } from './commands/providers.js';
+import { configCommand } from './commands/config.js';
+import { doctorCommand } from './commands/doctor.js';
 import { runTUI } from '../tui/index.js';
-import { logger } from './ui/logger.js';
 
 export function createCli(): Command {
   const program = new Command();
@@ -12,15 +13,16 @@ export function createCli(): Command {
   program
     .name('apkdown')
     .description('Professional Multi-Source APK & Split Downloader CLI & Interactive TUI')
-    .version('1.0.0', '-v, --version', 'Output current version');
+    .version('1.0.3', '-v, --version', 'Output current version');
 
-  // Register commands
+  // Register all CLI commands
   program.addCommand(searchCommand);
   program.addCommand(downloadCommand);
   program.addCommand(infoCommand);
   program.addCommand(versionsCommand);
   program.addCommand(providersCommand);
   program.addCommand(configCommand);
+  program.addCommand(doctorCommand);
 
   // Register interactive TUI command
   program

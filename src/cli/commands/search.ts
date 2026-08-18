@@ -18,14 +18,17 @@ export const searchCommand = new Command('search')
   .option('-b, --beta', 'Include Beta, Alpha, and Insider preview versions', false)
   .option('-a, --arch <architecture>', 'Filter variants by target CPU architecture (arm64-v8a, armeabi-v7a, x86, x86_64, universal, all)')
   .option('-d, --download', 'Prompt to immediately download a selected result', false)
+  .option('--json', 'Output results in JSON format', false)
   .action(async (query: string, options: any) => {
-    logger.info(`Searching for "${pc.bold(query)}" across providers...`);
+    if (!options.json) {
+      logger.info(`Searching for "${pc.bold(query)}" across providers...`);
+    }
 
     const excludeList = options.exclude
       ? options.exclude.split(',').map((p: string) => p.trim().toLowerCase()).filter(Boolean)
       : [];
 
-    if (excludeList.length > 0) {
+    if (!options.json && excludeList.length > 0) {
       logger.info(`Excluding providers: ${excludeList.map((p: string) => pc.yellow(p)).join(', ')}`);
     }
 
@@ -38,6 +41,11 @@ export const searchCommand = new Command('search')
         includeBeta: options.beta,
         arch: options.arch as Architecture,
       });
+
+      if (options.json) {
+        console.log(JSON.stringify(results, null, 2));
+        return;
+      }
 
       if (results.length === 0) {
         logger.warn(`No APKs found matching "${query}". Try searching another keyword or adjusting filters.`);
@@ -88,6 +96,10 @@ export const searchCommand = new Command('search')
         }
       }
     } catch (err: any) {
-      logger.error(`Search error: ${err.message}`);
+      if (options.json) {
+        console.error(JSON.stringify({ error: err.message }));
+      } else {
+        logger.error(`Search error: ${err.message}`);
+      }
     }
   });

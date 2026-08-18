@@ -22,6 +22,8 @@ export const downloadCommand = new Command('download')
   .option('-o, --output <dir>', 'Target output directory for the downloaded APK')
   .option('-f, --force', 'Force re-download and overwrite existing files', false)
   .option('--no-verify', 'Skip cryptographic checksum verification')
+  .option('--dry-run', 'Inspect download candidate and variant details without downloading file', false)
+  .option('--json', 'Output download result metadata in JSON format', false)
   .action(async (app: string, options: any) => {
     const config = configManager.getAll();
     let targetProvider = options.provider;
@@ -30,18 +32,20 @@ export const downloadCommand = new Command('download')
       ? options.exclude.split(',').map((p: string) => p.trim().toLowerCase()).filter(Boolean)
       : [];
 
-    logger.info(`Resolving download target for "${pc.bold(app)}"...`);
+    if (!options.json) {
+      logger.info(`Resolving download target for "${pc.bold(app)}"...`);
+    }
 
-    if (excludeList.length > 0) {
+    if (!options.json && excludeList.length > 0) {
       logger.info(`Excluding providers: ${excludeList.map((p: string) => pc.yellow(p)).join(', ')}`);
     }
 
-    if (options.arch) {
+    if (!options.json && options.arch) {
       logger.info(`Filtering for architecture: ${pc.cyan(pc.bold(options.arch))}`);
     }
 
     try {
-      if (targetProvider === 'all' || !targetProvider) {
+      if (!options.json && (targetProvider === 'all' || !targetProvider)) {
         logger.info('Searching across all providers to find and compare latest versions...');
       }
 
@@ -49,6 +53,64 @@ export const downloadCommand = new Command('download')
 
       const effectiveChannel = options.beta ? 'beta' : (options.channel as ReleaseChannel);
       const preferredArch = (options.arch as Architecture) || config.preferredArch;
+
+      // Handle dry-run resolution
+      if (options.dryRun) {
+        const searchResults = await providerRegistry.search({
+          query: app,
+          provider: targetProvider === 'all' ? undefined : targetProvider,
+          excludeProviders: excludeList,
+          limit: 3,
+          includeBeta: options.beta || effectiveChannel !== 'stable',
+          arch: preferredArch,
+        });
+
+        if (searchResults.length === 0) {
+          throw new Error(`No app found matching "${app}" for dry run inspection.`);
+        }
+
+        const top = searchResults[0];
+        const p = providerRegistry.get(top.provider);
+        if (!p) throw new Error(`Provider "${top.provider}" not available`);
+
+        const details = await p.getAppDetails(top.id || top.packageName);
+        const bestVariant = ApkDownloader.selectBestVariant(details, {
+          preferredArch,
+          arch: preferredArch,
+          channel: effectiveChannel,
+          allowBeta: options.beta || effectiveChannel !== 'stable',
+          version: options.version,
+        });
+
+        const dryRunInfo = {
+          dryRun: true,
+          appName: details.name,
+          packageName: details.packageName,
+          provider: details.provider,
+          version: bestVariant.versionName || details.latestVersion,
+          architecture: bestVariant.architecture,
+          packageType: bestVariant.packageType,
+          fileSizeBytes: bestVariant.fileSizeBytes,
+          fileSizeFormatted: bestVariant.fileSizeFormatted,
+          minAndroid: bestVariant.minAndroid,
+          hashes: bestVariant.hashes,
+        };
+
+        if (options.json) {
+          console.log(JSON.stringify(dryRunInfo, null, 2));
+        } else {
+          console.log('\n' + pc.bold('🔍 Dry Run Resolution Results:'));
+          console.log(`  ${pc.bold('App:')}         ${details.name} (${details.packageName})`);
+          console.log(`  ${pc.bold('Provider:')}    ${pc.cyan(details.provider)}`);
+          console.log(`  ${pc.bold('Version:')}     ${pc.green(dryRunInfo.version || 'Latest')}`);
+          console.log(`  ${pc.bold('Arch:')}        ${dryRunInfo.architecture}`);
+          console.log(`  ${pc.bold('Format:')}      ${dryRunInfo.packageType}`);
+          console.log(`  ${pc.bold('Size:')}        ${dryRunInfo.fileSizeFormatted || 'Unknown'}`);
+          console.log(`  ${pc.bold('SHA-256:')}     ${dryRunInfo.hashes?.sha256 || 'N/A'}`);
+          console.log('');
+        }
+        return;
+      }
 
       const result = await ApkDownloader.download(
         targetProvider === 'all' ? undefined : targetProvider,
@@ -64,6 +126,8 @@ export const downloadCommand = new Command('download')
           forceOverwrite: options.force,
           verifyChecksum: options.verify !== false,
           onComparison: (candidates: ProviderComparisonResult[], chosen: ProviderComparisonResult) => {
+            if (options.json) return;
+
             console.log('\n' + pc.bold('Cross-Provider Version Comparison:'));
 
             const table = new Table({
@@ -100,6 +164,8 @@ export const downloadCommand = new Command('download')
             logger.info(`Selected latest version ${pc.green(pc.bold(chosen.version))} (${chosen.bestVariant.architecture}) from ${pc.cyan(pc.bold(chosen.provider))}`);
           },
           onProgress: (p: DownloadProgress) => {
+            if (options.json) return;
+
             if (!bar) {
               bar = createDownloadProgressBar(app);
               bar.start(100, 0, {
@@ -123,8 +189,13 @@ export const downloadCommand = new Command('download')
       if (bar) {
         bar.stop();
       }
-      console.log('\n');
 
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+
+      console.log('\n');
       logger.success(`APK Download Complete!`);
       console.log(`${pc.bold('File:')}     ${result.filePath}`);
       console.log(`${pc.bold('Size:')}     ${formatBytes(result.fileSizeBytes)}`);
@@ -136,7 +207,11 @@ export const downloadCommand = new Command('download')
         console.log(`${pc.bold('Time:')}     ${(result.durationMs / 1000).toFixed(1)}s`);
       }
     } catch (err: any) {
-      console.log('\n');
-      logger.error(`Download failed: ${err.message}`);
+      if (options.json) {
+        console.error(JSON.stringify({ error: err.message }));
+      } else {
+        console.log('\n');
+        logger.error(`Download failed: ${err.message}`);
+      }
     }
   });

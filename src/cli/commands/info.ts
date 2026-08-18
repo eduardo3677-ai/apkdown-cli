@@ -14,17 +14,35 @@ export const infoCommand = new Command('info')
   .argument('<app>', 'App name, package name, or ID')
   .option('-p, --provider <provider>', 'Provider to inspect (aptoide, apkmirror, apkpure, apkcombo, fdroid, izzyondroid, github, appgallery)', 'aptoide')
   .option('-a, --arch <architecture>', 'Filter variants by architecture (arm64-v8a, armeabi-v7a, x86, x86_64, universal, all)')
+  .option('--json', 'Output metadata and variant breakdown in JSON format', false)
   .action(async (app: string, options: any) => {
-    logger.info(`Fetching details for "${pc.bold(app)}" from ${pc.cyan(options.provider)}...`);
+    if (!options.json) {
+      logger.info(`Fetching details for "${pc.bold(app)}" from ${pc.cyan(options.provider)}...`);
+    }
 
     const provider = providerRegistry.get(options.provider);
     if (!provider) {
-      logger.error(`Unknown provider: "${options.provider}"`);
+      if (options.json) {
+        console.error(JSON.stringify({ error: `Unknown provider: "${options.provider}"` }));
+      } else {
+        logger.error(`Unknown provider: "${options.provider}"`);
+      }
       return;
     }
 
     try {
       const details = await provider.getAppDetails(app);
+
+      let variantsToDisplay = details.variants;
+      if (options.arch && options.arch !== 'all') {
+        const targetArch = options.arch as Architecture;
+        variantsToDisplay = details.variants.filter((v) => isArchCompatible(v.architecture, targetArch));
+      }
+
+      if (options.json) {
+        console.log(JSON.stringify({ ...details, variants: variantsToDisplay }, null, 2));
+        return;
+      }
 
       const infoBox = `${pc.bold(pc.cyan(details.name))}
 ${pc.dim(details.packageName)}
@@ -41,11 +59,8 @@ ${details.description ? details.description.slice(0, 300) + (details.description
 
       console.log('\n' + boxen(infoBox, { padding: 1, borderStyle: 'round', borderColor: 'cyan' }) + '\n');
 
-      let variantsToDisplay = details.variants;
       if (options.arch && options.arch !== 'all') {
-        const targetArch = options.arch as Architecture;
-        variantsToDisplay = details.variants.filter((v) => isArchCompatible(v.architecture, targetArch));
-        logger.info(`Filtering variants for CPU architecture: ${pc.cyan(pc.bold(targetArch))} (matched ${variantsToDisplay.length}/${details.variants.length})`);
+        logger.info(`Filtering variants for CPU architecture: ${pc.cyan(pc.bold(options.arch))} (matched ${variantsToDisplay.length}/${details.variants.length})`);
       }
 
       if (variantsToDisplay.length > 0) {
@@ -64,7 +79,11 @@ ${details.description ? details.description.slice(0, 300) + (details.description
         console.log('\n');
       }
     } catch (err: any) {
-      logger.error(`Failed to get app details: ${err.message}`);
+      if (options.json) {
+        console.error(JSON.stringify({ error: err.message }));
+      } else {
+        logger.error(`Failed to get app details: ${err.message}`);
+      }
     }
   });
 
@@ -74,10 +93,15 @@ export const versionsCommand = new Command('versions')
   .argument('<app>', 'App name or package name')
   .option('-p, --provider <provider>', 'Provider to inspect', 'aptoide')
   .option('-a, --arch <architecture>', 'Filter variants by architecture (arm64-v8a, armeabi-v7a, x86, x86_64, universal, all)')
+  .option('--json', 'Output variant version list in JSON format', false)
   .action(async (app: string, options: any) => {
     const provider = providerRegistry.get(options.provider);
     if (!provider) {
-      logger.error(`Unknown provider: "${options.provider}"`);
+      if (options.json) {
+        console.error(JSON.stringify({ error: `Unknown provider: "${options.provider}"` }));
+      } else {
+        logger.error(`Unknown provider: "${options.provider}"`);
+      }
       return;
     }
 
@@ -88,9 +112,18 @@ export const versionsCommand = new Command('versions')
         variantsToDisplay = details.variants.filter((v) => isArchCompatible(v.architecture, options.arch as Architecture));
       }
 
+      if (options.json) {
+        console.log(JSON.stringify(variantsToDisplay, null, 2));
+        return;
+      }
+
       console.log(`\n${pc.bold(details.name)} (${details.packageName}) - Variants:\n`);
       console.log(renderVariantsTable(variantsToDisplay) + '\n');
     } catch (err: any) {
-      logger.error(`Failed to retrieve versions: ${err.message}`);
+      if (options.json) {
+        console.error(JSON.stringify({ error: err.message }));
+      } else {
+        logger.error(`Failed to retrieve versions: ${err.message}`);
+      }
     }
   });

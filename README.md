@@ -127,16 +127,29 @@ npx @eduardo3677-ai/apkdown-cli search telegram
 apkdown tui
 
 # 2. Descarga automática de la última versión comparando todos los proveedores
-apkdown download org.telegram.messenger -o ./mis-apks
+apkdown download org.telegram.messenger
 
-# 3. Descargar excluyendo proveedores específicos y seleccionando arquitectura
+# 3. Inspección previa sin descargar (Dry Run) con salida JSON
+apkdown download org.videolan.vlc --dry-run --json
+
+# 4. Descargar excluyendo proveedores específicos y seleccionando arquitectura
 apkdown download telegram -x appgallery,aptoide -a arm64-v8a -o ./mis-apks
 
-# 4. Buscar aplicaciones con filtro de arquitectura y canal Beta
+# 5. Buscar aplicaciones con filtro de arquitectura y canal Beta
 apkdown search telegram -p apkmirror,apkpure -a arm64-v8a -b -l 5
 
-# 5. Ver detalles, metadatos y variantes de CPU
+# 6. Ver detalles, metadatos y variantes de CPU
 apkdown info org.videolan.vlc -p fdroid -a arm64-v8a
+
+# 7. Diagnosticar entorno, Python TLS curl_cffi y conectividad de red
+apkdown doctor
+
+# 8. Probar latencia y salud de todos los proveedores
+apkdown providers --test
+
+# 9. Gestionar configuración persistente
+apkdown config list
+apkdown config set preferredArch arm64-v8a
 ```
 
 ---
