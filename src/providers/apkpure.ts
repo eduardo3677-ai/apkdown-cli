@@ -17,51 +17,88 @@ export class APKPureProvider extends BaseProvider {
   public readonly homepage = 'https://apkpure.com';
 
   private baseUrl = 'https://apkpure.com';
+  private mobileUrl = 'https://m.apkpure.com';
+
+  private badKeywords = [
+    'login', 'register', 'howto', 'news', 'reviews', 'about', 'privacy',
+    'terms', 'support', 'topics', 'install', 'verification', 'monetization',
+    'search', 'cooperation', 'eu-amau', 'copyright', 'feedback'
+  ];
+
+  private tlds = ['.com', '.ai', '.io', '.net', '.org', '.html', '.htm', '.php', '.js', '.css'];
 
   public async search(query: string, options: ProviderSearchOptions = {}): Promise<AppSearchResult[]> {
-    const url = `${this.baseUrl}/search?q=${encodeURIComponent(query)}`;
+    const url = `${this.mobileUrl}/search?q=${encodeURIComponent(query)}`;
 
     try {
       const res = await this.http.get(url, {
         impersonate: 'safari_ios',
         headers: {
-          Referer: 'https://apkpure.com/',
+          Referer: 'https://m.apkpure.com/',
         },
       });
 
       const $ = cheerio.load(res.data);
       const results: AppSearchResult[] = [];
 
-      $('.search-res li, .search-result li, .apk_list li, a.dd, .apk-item').each((_, element) => {
-        const item = $(element);
-        const link = item.find('a').first().attr('href') || item.attr('href');
-        if (!link || link.includes('javascript') || link.includes('/topic/') || link.includes('/campaign/')) return;
+      // Extract general version mention from page if available (e.g. "Latest Version 12.9.2")
+      const pageText = $('body').text();
+      const globalVerMatch = pageText.match(/(?:Version|v)\s*(\d+(\.\d+)+[a-zA-Z0-9.\-_]*)/i);
+      const fallbackVer = globalVerMatch ? globalVerMatch[1] : undefined;
 
-        const title = item.find('.title, .p1, .search-title, a.title').first().text().trim();
-        if (!title) return;
+      $('a').each((_, element) => {
+        const a = $(element);
+        const href = a.attr('href') || '';
+        if (!href || href.includes('javascript')) return;
 
-        const dev = item.find('.developer, .p2, .author').first().text().trim();
-        const iconElem = item.find('img').first();
-        const iconUrl = iconElem.attr('data-original') || iconElem.attr('src');
+        const cleanHref = href.toLowerCase();
+        if (this.badKeywords.some((k) => cleanHref.includes(`/${k}`) || cleanHref.endsWith(`/${k}`))) {
+          return;
+        }
 
-        const cleanLink = link.startsWith('http') ? link : `${this.baseUrl}${link}`;
-        const parts = link.replace(/\/$/, '').split('/');
-        const pkg = parts[parts.length - 1] || title.toLowerCase().replace(/\s+/g, '.');
+        // Match APKPure app pages with real Android package IDs (e.g. https://apkpure.com/telegram/org.telegram.messenger)
+        const parts = href.split('?')[0].replace(/\/$/, '').split('/');
+        const pkg = parts[parts.length - 1];
+        if (
+          !pkg ||
+          pkg.includes('apkpure') ||
+          this.badKeywords.includes(pkg) ||
+          this.tlds.some((t) => pkg.toLowerCase().endsWith(t)) ||
+          !/^[a-zA-Z][a-zA-Z0-9_]*\.[a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+)*$/.test(pkg)
+        ) {
+          return;
+        }
+
+        const cleanLink = href.startsWith('http') ? href : `${this.baseUrl}${href}`;
 
         // Ignore APKPure Aegon store app unless explicitly searched for
         if (pkg.includes('com.apkpure.aegon') && !query.toLowerCase().includes('apkpure')) {
           return;
         }
 
-        // Check if already added
-        if (results.some((r) => r.packageName === pkg)) return;
+        if (results.some((r) => r.packageName === pkg || r.sourceUrl === cleanLink)) return;
+
+        const fullText = a.text().replace(/\s+/g, ' ').trim();
+        let title = a.find('.title, .name, h3, h4, p').first().text().trim();
+        if (!title && fullText) {
+          title = fullText.split(' ')[0] || pkg;
+        }
+        if (!title || title.length < 2 || title.toLowerCase() === 'apkpure.com') return;
+
+        const dev = a.find('.developer, .author, .p2').first().text().trim() || 'APKPure Developer';
+        const iconElem = a.find('img').first();
+        const iconUrl = iconElem.attr('data-original') || iconElem.attr('src');
+
+        // Extract clean numerical version
+        const verMatch = fullText.match(/\b(?:v|version\s*)?(\d+\.\d+(\.\d+)*[a-zA-Z0-9.\-_]*)\b/i);
+        const resolvedVer = verMatch ? verMatch[1] : (fallbackVer || 'Latest');
 
         results.push({
           id: cleanLink,
           name: title,
           packageName: pkg,
-          developer: dev || 'APKPure Dev',
-          version: 'Latest',
+          developer: dev,
+          version: resolvedVer,
           iconUrl,
           description: `${title} on APKPure`,
           provider: this.name,
@@ -120,6 +157,11 @@ export class APKPureProvider extends BaseProvider {
       const iconUrl = $('.icon img, .app_icon img, .app-icon img, .details_sdk img').first().attr('src');
       const description = $('.describe, .description, .details-info').first().text().trim();
 
+      // Extract version from page body if available
+      const bodyText = $('body').text();
+      const pageVerMatch = bodyText.match(/(?:version|v)\s*(\d+(\.\d+)+[a-zA-Z0-9.\-_]*)/i);
+      const detectedVersion = pageVerMatch ? pageVerMatch[1] : 'Latest';
+
       const variants: AppVariant[] = [];
 
       // 2. Fetch the /download page if available to extract specific architecture splits & versions
@@ -156,7 +198,7 @@ export class APKPureProvider extends BaseProvider {
 
             const linkText = a.text().trim();
             const verMatch = linkText.match(/(\d+(\.\d+)+[a-zA-Z0-9.\-_]*)/);
-            const versionName = verMatch ? verMatch[1] : 'Latest';
+            const versionName = verMatch ? verMatch[1] : detectedVersion;
 
             const sizeMatch = linkText.match(/(\d+(\.\d+)?\s*(MB|GB|KB))/i);
             const fileSizeFormatted = sizeMatch ? sizeMatch[0] : undefined;
@@ -190,7 +232,7 @@ export class APKPureProvider extends BaseProvider {
       if (variants.length === 0) {
         variants.push({
           id: `apkpure-latest-apk`,
-          versionName: 'Latest',
+          versionName: detectedVersion,
           architecture: 'universal',
           packageType: 'APK',
           downloadUrl: `https://d.apkpure.com/b/APK/${pkg}?version=latest`,
@@ -199,7 +241,7 @@ export class APKPureProvider extends BaseProvider {
         });
         variants.push({
           id: `apkpure-latest-xapk`,
-          versionName: 'Latest (Bundle)',
+          versionName: `${detectedVersion} (Bundle)`,
           architecture: 'universal',
           packageType: 'XAPK',
           downloadUrl: `https://d.apkpure.com/b/XAPK/${pkg}?version=latest`,
@@ -217,7 +259,7 @@ export class APKPureProvider extends BaseProvider {
         iconUrl,
         provider: this.name,
         sourceUrl: appUrl,
-        latestVersion: variants[0]?.versionName || 'Latest',
+        latestVersion: variants[0]?.versionName || detectedVersion,
         variants,
       };
     } catch (err: any) {

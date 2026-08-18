@@ -50,12 +50,17 @@ export class APKComboProvider extends BaseProvider {
 
         if (results.some((r) => r.sourceUrl === `${this.baseUrl}${href}`)) return;
 
+        const itemText = item.text().replace(/\s+/g, ' ').trim();
+        const verMatch = item.find('.ver, .version, .is-sub.is-bold').first().text().trim().match(/(\d+(\.\d+)+[a-zA-Z0-9.\-_]*)/) ||
+          itemText.match(/(?:v|version\s*)?(\d+(\.\d+)+[a-zA-Z0-9.\-_]*)/i);
+        const version = verMatch ? verMatch[1] : 'Latest';
+
         results.push({
           id: href,
           name: title,
           packageName: pkg,
           developer: dev || 'APKCombo Publisher',
-          version: 'Latest',
+          version,
           iconUrl: iconUrl?.startsWith('http') ? iconUrl : iconUrl ? `${this.baseUrl}${iconUrl}` : undefined,
           description: `${title} on APKCombo`,
           provider: this.name,

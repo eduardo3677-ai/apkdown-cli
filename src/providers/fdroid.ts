@@ -39,13 +39,18 @@ export class FDroidProvider extends BaseProvider {
         const iconElem = item.find('.package-icon').first();
         const iconUrl = iconElem.attr('src');
 
+        const itemText = item.text().replace(/\s+/g, ' ').trim();
+        const verMatch = item.find('.package-version, .version').first().text().trim().match(/(\d+(\.\d+)+[a-zA-Z0-9.\-_]*)/) ||
+          itemText.match(/(?:version|v)?\s*(\d+(\.\d+)+[a-zA-Z0-9.\-_]*)/i);
+        const version = verMatch ? verMatch[1] : 'Latest';
+
         results.push({
           id: packageName,
           name,
           packageName,
           developer: 'F-Droid FOSS Community',
-          version: 'Latest',
-          iconUrl,
+          version,
+          iconUrl: iconUrl?.startsWith('http') ? iconUrl : iconUrl ? `${this.baseUrl}${iconUrl}` : undefined,
           description: summary || `${name} on F-Droid`,
           provider: this.name,
           sourceUrl: href.startsWith('http') ? href : `${this.baseUrl}${href}`,

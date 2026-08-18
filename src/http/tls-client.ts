@@ -32,9 +32,8 @@ export const BROWSER_CIPHER_SUITE = [
 ].join(':');
 
 /**
- * Pure TypeScript/Node.js TLS & HTTP Client with browser fingerprinting,
- * automatic decompression, cookie jar, and redirect handling.
- * Eliminates the need for external Python / curl_cffi binaries.
+ * Pure TypeScript/Node.js High-Performance TLS & HTTP Streaming Client
+ * with browser fingerprinting, 4MB write buffers, cookie jar, and auto redirect handling.
  */
 export class NativeTlsClient implements HttpClient {
   private cookies: Map<string, string> = new Map();
@@ -48,8 +47,9 @@ export class NativeTlsClient implements HttpClient {
       maxVersion: 'TLSv1.3',
       ecdhCurve: 'X25519:P-256:P-384:P-521',
       keepAlive: true,
-      keepAliveMsecs: 10000,
-      maxSockets: 32,
+      keepAliveMsecs: 30000,
+      maxSockets: 64,
+      maxFreeSockets: 32,
       secureOptions:
         crypto.constants.SSL_OP_NO_SSLv2 |
         crypto.constants.SSL_OP_NO_SSLv3 |
@@ -60,12 +60,13 @@ export class NativeTlsClient implements HttpClient {
 
     this.httpAgent = new http.Agent({
       keepAlive: true,
-      keepAliveMsecs: 10000,
-      maxSockets: 32,
+      keepAliveMsecs: 30000,
+      maxSockets: 64,
+      maxFreeSockets: 32,
     });
   }
 
-  private buildBrowserHeaders(url: URL, options: HttpRequestOptions): Record<string, string> {
+  private buildBrowserHeaders(url: URL, options: HttpRequestOptions, isDownload = false): Record<string, string> {
     const isMobile = options.impersonate === 'safari_ios';
     const userAgent = isMobile ? DEFAULT_USER_AGENT : (options.headers?.['User-Agent'] || CHROME_USER_AGENT);
 
@@ -74,19 +75,25 @@ export class NativeTlsClient implements HttpClient {
       Connection: 'keep-alive',
       'Upgrade-Insecure-Requests': '1',
       'User-Agent': userAgent,
-      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+      Accept: isDownload
+        ? 'application/vnd.android.package-archive,application/octet-stream,*/*;q=0.8'
+        : 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
       'Accept-Language': 'en-US,en;q=0.9,es;q=0.8',
-      'Accept-Encoding': 'gzip, deflate, br, zstd',
     };
+
+    // For file downloads, don't request double compression
+    if (!isDownload) {
+      headers['Accept-Encoding'] = 'gzip, deflate, br';
+    }
 
     if (!isMobile) {
       headers['sec-ch-ua'] = '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"';
       headers['sec-ch-ua-mobile'] = '?0';
       headers['sec-ch-ua-platform'] = '"Windows"';
       headers['Sec-Fetch-Site'] = options.headers?.Referer ? 'same-origin' : 'none';
-      headers['Sec-Fetch-Mode'] = 'navigate';
+      headers['Sec-Fetch-Mode'] = isDownload ? 'no-cors' : 'navigate';
       headers['Sec-Fetch-User'] = '?1';
-      headers['Sec-Fetch-Dest'] = 'document';
+      headers['Sec-Fetch-Dest'] = isDownload ? 'empty' : 'document';
     }
 
     // Append cookies from session cookie jar
@@ -128,11 +135,11 @@ export class NativeTlsClient implements HttpClient {
     if (!encoding) return null;
     const enc = encoding.toLowerCase().trim();
     if (enc.includes('gzip')) {
-      return zlib.createGunzip();
+      return zlib.createGunzip({ chunkSize: 128 * 1024 });
     } else if (enc.includes('deflate')) {
-      return zlib.createInflate();
+      return zlib.createInflate({ chunkSize: 128 * 1024 });
     } else if (enc.includes('br')) {
-      return zlib.createBrotliDecompress();
+      return zlib.createBrotliDecompress({ chunkSize: 128 * 1024 });
     }
     return null;
   }
@@ -159,7 +166,7 @@ export class NativeTlsClient implements HttpClient {
     const requestFn = isHttps ? https.request : http.request;
     const agent = isHttps ? this.httpsAgent : this.httpAgent;
 
-    const headers = this.buildBrowserHeaders(parsedUrl, options);
+    const headers = this.buildBrowserHeaders(parsedUrl, options, false);
     let requestBody: Buffer | string | undefined = undefined;
 
     if (options.json) {
@@ -200,7 +207,7 @@ export class NativeTlsClient implements HttpClient {
             options.allowRedirects !== false
           ) {
             const redirectUrl = new URL(res.headers.location, parsedUrl).toString();
-            res.resume(); // Discard unused stream
+            res.resume();
             return resolve(
               this.request<T>(
                 redirectUrl,
@@ -298,10 +305,10 @@ export class NativeTlsClient implements HttpClient {
     const requestFn = isHttps ? https.request : http.request;
     const agent = isHttps ? this.httpsAgent : this.httpAgent;
 
-    const headers = this.buildBrowserHeaders(parsedUrl, options);
+    const headers = this.buildBrowserHeaders(parsedUrl, options, true);
 
     return new Promise((resolve, reject) => {
-      const timeoutMs = options.timeoutMs || 120000;
+      const timeoutMs = options.timeoutMs || 180000;
 
       const req = requestFn(
         parsedUrl,
@@ -340,26 +347,33 @@ export class NativeTlsClient implements HttpClient {
           const contentLength = res.headers['content-length'];
           const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
           let bytesWritten = 0;
+          let lastProgressReport = 0;
 
           const targetDir = path.dirname(destPath);
           if (!fs.existsSync(targetDir)) {
             fs.mkdirSync(targetDir, { recursive: true });
           }
 
-          const fileStream = fs.createWriteStream(destPath);
+          // High-throughput 4MB file write stream buffer
+          const fileStream = fs.createWriteStream(destPath, { highWaterMark: 1024 * 1024 * 4 });
           const encoding = res.headers['content-encoding'];
           const decompressor = this.createDecompressor(encoding);
           const sourceStream = decompressor ? res.pipe(decompressor) : res;
 
           sourceStream.on('data', (chunk: Buffer) => {
             bytesWritten += chunk.length;
-            if (onProgress) {
+            const now = Date.now();
+            if (onProgress && (now - lastProgressReport >= 150 || bytesWritten === totalBytes)) {
+              lastProgressReport = now;
               onProgress(bytesWritten, totalBytes || bytesWritten);
             }
           });
 
           try {
             await pipeline(sourceStream, fileStream);
+            if (onProgress) {
+              onProgress(bytesWritten, totalBytes || bytesWritten);
+            }
             resolve({
               filePath: destPath,
               bytesWritten,
