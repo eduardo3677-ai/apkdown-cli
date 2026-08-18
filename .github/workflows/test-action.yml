@@ -1,14 +1,17 @@
 name: Test APKDown GitHub Action
 
 on:
-  release:
+  workflow_run:
+    workflows:
+      - CI, Release & Marketplace Publish
     types:
-      - published
+      - completed
   workflow_dispatch:
 
 jobs:
   test-scenarios:
     name: Test Action Across Scenarios
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
 
     steps:
