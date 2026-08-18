@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build artifacts
+dist/
+*.tsbuildinfo
+
+# Downloaded files & temporary parts
+downloads/
+downloads_test/
+*.apk
+*.xapk
+*.apkm
+*.apks
+*.part
+
+# Python cache & virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# Logs & Debug
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# System & Editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Local configuration & state
+.system_generated/
+.env
+.env.local
+.env.*.local

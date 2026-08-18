@@ -1,0 +1,84 @@
+name: Build, Test & Publish to NPM
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install curl_cffi
+
+      - name: Install Node Dependencies
+        run: npm ci || npm install
+
+      - name: TypeScript Type Check
+        run: npm run typecheck
+
+      - name: Run Vitest Unit Tests
+        run: npm run test
+
+      - name: Compile Package Bundle
+        run: npm run build
+
+  publish:
+    name: Publish to NPM Registry
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install curl_cffi
+
+      - name: Install Node Dependencies
+        run: npm ci || npm install
+
+      - name: Compile Package Bundle
+        run: npm run build
+
+      - name: Publish Package to NPM (@eduardo3677-ai/apkdown-cli)
+        run: |
+          npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}

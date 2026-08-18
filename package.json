@@ -1,0 +1,78 @@
+{
+  "name": "@eduardo3677-ai/apkdown-cli",
+  "version": "1.0.0",
+  "description": "Professional Multi-Source Android APK, XAPK, and Split Bundle Downloader CLI & Interactive TUI with Automatic Multi-Provider Version Comparison, Architecture Filtering, and Beta/Preview Releases",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "apkdown": "./dist/bin/cli.js",
+    "apkdown-cli": "./dist/bin/cli.js"
+  },
+  "files": [
+    "dist",
+    "scripts",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eduardo3677-ai/apkdown-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/eduardo3677-ai/apkdown-cli/issues"
+  },
+  "homepage": "https://github.com/eduardo3677-ai/apkdown-cli#readme",
+  "scripts": {
+    "build": "tsup && tsc --declaration --emitDeclarationOnly --outDir dist",
+    "dev": "tsx src/bin/cli.ts",
+    "tui": "tsx src/bin/cli.ts tui",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run typecheck && npm run test && npm run build"
+  },
+  "keywords": [
+    "apk",
+    "apk-downloader",
+    "apkmirror",
+    "apkpure",
+    "aptoide",
+    "apkcombo",
+    "fdroid",
+    "izzyondroid",
+    "github-releases",
+    "appgallery",
+    "huawei",
+    "xapk",
+    "split-apk",
+    "android",
+    "arm64-v8a",
+    "armeabi-v7a",
+    "cli",
+    "tui",
+    "terminal"
+  ],
+  "author": "Eduardo <eduardo3677-ai>",
+  "license": "MIT",
+  "dependencies": {
+    "@clack/prompts": "^0.11.0",
+    "boxen": "^8.0.1",
+    "cheerio": "^1.2.0",
+    "cli-progress": "^3.12.0",
+    "cli-table3": "^0.6.5",
+    "commander": "^14.0.3",
+    "picocolors": "^1.1.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/cli-progress": "^3.11.6",
+    "@types/node": "^25.2.0",
+    "tsup": "^8.5.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  }
+}

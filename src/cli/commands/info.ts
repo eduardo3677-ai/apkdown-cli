@@ -1,0 +1,78 @@
+import { Command } from 'commander';
+import pc from 'picocolors';
+import boxen from 'boxen';
+import { providerRegistry } from '../../providers/registry.js';
+import { logger } from '../ui/logger.js';
+import { renderVariantsTable } from '../ui/table.js';
+import { formatDownloads, formatRating } from '../../utils/formatting.js';
+
+export const infoCommand = new Command('info')
+  .alias('i')
+  .description('Display detailed metadata and variant breakdown for an APK')
+  .argument('<app>', 'App name, package name, or ID')
+  .option('-p, --provider <provider>', 'Provider to inspect (aptoide, apkmirror, apkpure, apkcombo, fdroid, github, appgallery)', 'aptoide')
+  .action(async (app: string, options: any) => {
+    logger.info(`Fetching details for "${pc.bold(app)}" from ${pc.cyan(options.provider)}...`);
+
+    const provider = providerRegistry.get(options.provider);
+    if (!provider) {
+      logger.error(`Unknown provider: "${options.provider}"`);
+      return;
+    }
+
+    try {
+      const details = await provider.getAppDetails(app);
+
+      const infoBox = `${pc.bold(pc.cyan(details.name))}
+${pc.dim(details.packageName)}
+
+${pc.bold('Developer:')}   ${details.developer || 'N/A'}
+${pc.bold('Provider:')}    ${pc.green(details.provider)}
+${pc.bold('Latest:')}      ${pc.yellow(details.latestVersion || 'N/A')}
+${pc.bold('Rating:')}      ${formatRating(details.rating)}
+${pc.bold('Downloads:')}   ${formatDownloads(details.downloads)}
+${pc.bold('Source URL:')}  ${pc.blue(details.sourceUrl || 'N/A')}
+
+${pc.bold('Description:')}
+${details.description ? details.description.slice(0, 300) + (details.description.length > 300 ? '...' : '') : 'No description provided.'}`;
+
+      console.log('\n' + boxen(infoBox, { padding: 1, borderStyle: 'round', borderColor: 'cyan' }) + '\n');
+
+      if (details.variants.length > 0) {
+        console.log(pc.bold('Available Variants & Architectures:'));
+        console.log(renderVariantsTable(details.variants) + '\n');
+      }
+
+      if (details.permissions && details.permissions.length > 0) {
+        console.log(pc.bold(`Requested Permissions (${details.permissions.length}):`));
+        console.log(pc.dim(details.permissions.slice(0, 10).join('\n')));
+        if (details.permissions.length > 10) {
+          console.log(pc.dim(`... and ${details.permissions.length - 10} more permissions`));
+        }
+        console.log('\n');
+      }
+    } catch (err: any) {
+      logger.error(`Failed to get app details: ${err.message}`);
+    }
+  });
+
+export const versionsCommand = new Command('versions')
+  .alias('v')
+  .description('List all available releases and architecture variants for an application')
+  .argument('<app>', 'App name or package name')
+  .option('-p, --provider <provider>', 'Provider to inspect', 'aptoide')
+  .action(async (app: string, options: any) => {
+    const provider = providerRegistry.get(options.provider);
+    if (!provider) {
+      logger.error(`Unknown provider: "${options.provider}"`);
+      return;
+    }
+
+    try {
+      const details = await provider.getAppDetails(app);
+      console.log(`\n${pc.bold(details.name)} (${details.packageName}) - Variants:\n`);
+      console.log(renderVariantsTable(details.variants) + '\n');
+    } catch (err: any) {
+      logger.error(`Failed to retrieve versions: ${err.message}`);
+    }
+  });
