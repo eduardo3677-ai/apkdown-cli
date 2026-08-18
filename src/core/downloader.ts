@@ -113,13 +113,14 @@ export class ApkDownloader {
     const effectiveChannel = options.channel || config.defaultChannel;
     const includeBeta = options.allowBeta ?? (effectiveChannel !== 'stable');
     const preferredArch = options.preferredArch || options.arch || config.preferredArch;
+    const isPackageQuery = /^[a-zA-Z][a-zA-Z0-9_]*\.[a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+)*$/.test(queryOrPackage.trim());
 
     // 1. Search across active providers (taking into account exclusions and inclusions)
     const searchResults = await providerRegistry.search({
       query: queryOrPackage,
       excludeProviders: options.excludeProviders,
       includeProviders: options.includeProviders,
-      limit: 3,
+      limit: 5,
       includeBeta,
       arch: preferredArch,
     });
@@ -145,12 +146,31 @@ export class ApkDownloader {
       try {
         const details = await p.getAppDetails(searchItem.id || searchItem.packageName || searchItem.sourceUrl || queryOrPackage);
         if (!details.variants || details.variants.length === 0) return null;
+
+        // When searching for an exact package ID, reject forks with different package IDs
+        if (
+          isPackageQuery &&
+          details.packageName &&
+          details.packageName.toLowerCase() !== queryOrPackage.toLowerCase() &&
+          !details.packageName.toLowerCase().includes(queryOrPackage.toLowerCase())
+        ) {
+          return null;
+        }
+
         const bestVariant = ApkDownloader.selectBestVariant(details, options);
+        const resolvedVer = bestVariant.versionName || details.latestVersion || 'Latest';
+        const major = parseInt(resolvedVer.split(/[\.-]/)[0], 10);
+
+        // Filter out fake mod versions (e.g. 899.9999.9999)
+        if ((!isNaN(major) && major >= 400) || resolvedVer.includes('9999')) {
+          return null;
+        }
+
         return {
           provider: p.name,
           appName: details.name,
           packageName: details.packageName,
-          version: bestVariant.versionName || details.latestVersion || 'Latest',
+          version: resolvedVer,
           appDetails: details,
           bestVariant,
         } as ProviderComparisonResult;
@@ -174,8 +194,16 @@ export class ApkDownloader {
       return await ApkDownloader.download(top.provider, top.id, options);
     }
 
-    // 3. Sort candidates by latest version (newest first)
-    candidateProviders.sort((a, b) => compareVersions(b.version, a.version));
+    // 3. Prioritize exact package matches first, then sort candidates by latest version
+    candidateProviders.sort((a, b) => {
+      if (isPackageQuery) {
+        const aExact = a.packageName.toLowerCase() === queryOrPackage.toLowerCase();
+        const bExact = b.packageName.toLowerCase() === queryOrPackage.toLowerCase();
+        if (aExact && !bExact) return -1;
+        if (!aExact && bExact) return 1;
+      }
+      return compareVersions(b.version, a.version);
+    });
 
     const chosen = candidateProviders[0];
 
@@ -269,7 +297,7 @@ export class ApkDownloader {
           const now = Date.now();
           const elapsed = (now - lastProgressTime) / 1000;
 
-          if (elapsed >= 0.25 || bytesWritten === totalBytes) {
+          if (elapsed >= 0.15 || bytesWritten === totalBytes) {
             const speed = elapsed > 0 ? (bytesWritten - lastBytes) / elapsed : 0;
             const remainingBytes = totalBytes > bytesWritten ? totalBytes - bytesWritten : 0;
             const eta = speed > 0 ? remainingBytes / speed : 0;

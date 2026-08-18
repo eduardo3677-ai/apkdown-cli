@@ -92,7 +92,7 @@ export class ProviderRegistry {
   }
 
   /**
-   * Searches across selected or all active providers with concurrency control
+   * Searches across selected or all active providers with exact match ranking and concurrency control
    */
   public async search(options: SearchOptions): Promise<AppSearchResult[]> {
     const { query, limit = 10, includeBeta = false, arch } = options;
@@ -117,23 +117,72 @@ export class ProviderRegistry {
       }
     }
 
-    // Deduplicate and rank results
-    return this.deduplicateResults(results);
+    // Deduplicate and rank results with exact package matching
+    return this.deduplicateAndRankResults(results, query);
   }
 
-  private deduplicateResults(results: AppSearchResult[]): AppSearchResult[] {
+  private deduplicateAndRankResults(results: AppSearchResult[], query: string): AppSearchResult[] {
+    const cleanQuery = query.toLowerCase().trim();
+    const isPackageQuery = /^[a-zA-Z][a-zA-Z0-9_]*\.[a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+)*$/.test(cleanQuery);
+
     const seen = new Set<string>();
-    const unique: AppSearchResult[] = [];
+    const unique: { item: AppSearchResult; score: number }[] = [];
 
     for (const r of results) {
       const key = `${r.packageName.toLowerCase()}::${r.provider}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        unique.push(r);
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const pkg = r.packageName.toLowerCase();
+      const name = r.name.toLowerCase();
+      const id = r.id.toLowerCase();
+      let score = 0;
+
+      // Filter out fake mod versions (e.g. 899.9999.9999 or >400)
+      if (r.version) {
+        const major = parseInt(r.version.split(/[\.-]/)[0], 10);
+        if ((!isNaN(major) && major >= 400) || r.version.includes('9999')) {
+          continue;
+        }
       }
+
+      if (isPackageQuery) {
+        // When searching specifically for package ID (e.g. org.telegram.messenger)
+        if (pkg === cleanQuery || id === cleanQuery) {
+          score += 10000;
+        } else if (pkg.startsWith(cleanQuery) || cleanQuery.startsWith(pkg)) {
+          score += 5000;
+        } else {
+          // If user searched for exact package, drop completely unrelated apps (e.g. discord or forks)
+          continue;
+        }
+      } else {
+        // Friendly name query (e.g. telegram, spotify)
+        if (name === cleanQuery) {
+          score += 2000;
+        } else if (name.startsWith(cleanQuery)) {
+          score += 1000;
+        } else if (name.includes(cleanQuery)) {
+          score += 500;
+        }
+
+        if (pkg.includes(cleanQuery)) {
+          score += 400;
+        }
+
+        // Slight bonus for verified / popular official apps
+        if (r.downloads && String(r.downloads).includes('M+')) {
+          score += 100;
+        }
+      }
+
+      unique.push({ item: r, score });
     }
 
-    return unique;
+    // Sort descending by score
+    unique.sort((a, b) => b.score - a.score);
+
+    return unique.map((u) => u.item);
   }
 }
 

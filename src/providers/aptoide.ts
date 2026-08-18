@@ -18,21 +18,76 @@ export class AptoideProvider extends BaseProvider {
   private baseUrl = 'https://ws75.aptoide.com/api/7';
 
   public async search(query: string, options: ProviderSearchOptions = {}): Promise<AppSearchResult[]> {
+    const cleanQuery = query.trim();
+    const isPackageQuery = /^[a-zA-Z][a-zA-Z0-9_]*\.[a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+)*$/.test(cleanQuery);
+    const results: AppSearchResult[] = [];
+
+    // 1. If searching for exact package name, query direct app metadata endpoint first
+    if (isPackageQuery) {
+      try {
+        const directRes = await this.http.get(`${this.baseUrl}/app/get/package_name=${encodeURIComponent(cleanQuery)}`, {
+          responseType: 'json',
+        });
+        const meta = directRes.data?.nodes?.meta?.data;
+        if (meta && meta.package) {
+          const file = meta.file || {};
+          const verName = file.vername || 'Latest';
+          const major = parseInt(verName.split(/[\.-]/)[0], 10);
+
+          if ((isNaN(major) || major < 400) && !verName.includes('9999')) {
+            results.push({
+              id: meta.package,
+              name: meta.name || meta.package,
+              packageName: meta.package,
+              developer: meta.developer?.name || meta.store?.name || 'Aptoide Dev',
+              version: verName,
+              iconUrl: meta.icon || meta.graphic,
+              description: meta.media?.description || `${meta.name} on Aptoide`,
+              provider: this.name,
+              rating: meta.stats?.rating?.avg ? Number(meta.stats.rating.avg.toFixed(1)) : undefined,
+              downloads: meta.stats?.downloads ? `${(meta.stats.downloads / 1000000).toFixed(1)}M+` : undefined,
+              sourceUrl: `https://${meta.uname || meta.package}.en.aptoide.com/app`,
+              updatedAt: meta.updated || file.added,
+            });
+            return results;
+          }
+        }
+      } catch {
+        // Fallback to keyword search
+      }
+    }
+
+    // 2. Query apps search endpoint
     const limit = options.limit || 15;
-    const url = `${this.baseUrl}/apps/search?query=${encodeURIComponent(query)}&limit=${limit}`;
+    const searchQuery = isPackageQuery ? cleanQuery.split('.').pop() || cleanQuery : cleanQuery;
+    const url = `${this.baseUrl}/apps/search?query=${encodeURIComponent(searchQuery)}&limit=${limit}`;
 
     try {
       const res = await this.http.get(url, { responseType: 'json' });
       const data = res.data;
       const list = data?.datalist?.list || [];
 
-      return list.map((item: any): AppSearchResult => {
-        return {
+      for (const item of list) {
+        const pkg = item.package || '';
+        const verName = item.file?.vername || 'Latest';
+        const major = parseInt(verName.split(/[\.-]/)[0], 10);
+
+        // Filter out fake modded versions (e.g. 899.9999.9999)
+        if ((!isNaN(major) && major >= 400) || verName.includes('9999')) {
+          continue;
+        }
+
+        // If package query, ensure package prefix matches
+        if (isPackageQuery && !pkg.toLowerCase().includes(cleanQuery.toLowerCase()) && !cleanQuery.toLowerCase().includes(pkg.toLowerCase())) {
+          continue;
+        }
+
+        results.push({
           id: item.package || String(item.id),
           name: item.name || 'Unknown',
-          packageName: item.package || '',
+          packageName: pkg,
           developer: item.developer?.name || item.store?.name || 'Aptoide Dev',
-          version: item.file?.vername || 'Latest',
+          version: verName,
           iconUrl: item.icon || item.graphic,
           description: item.media?.description || `${item.name} on Aptoide`,
           provider: this.name,
@@ -40,8 +95,10 @@ export class AptoideProvider extends BaseProvider {
           downloads: item.stats?.downloads || item.stats?.pdownloads,
           sourceUrl: `https://${item.uname || item.package}.en.aptoide.com/app`,
           updatedAt: item.updated || item.modified,
-        };
-      });
+        });
+      }
+
+      return results.slice(0, options.limit || 15);
     } catch (err: any) {
       throw new ProviderError(this.name, `Search failed: ${err.message}`, err);
     }

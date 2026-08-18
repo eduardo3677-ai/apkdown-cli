@@ -89,8 +89,9 @@ export class APKPureProvider extends BaseProvider {
         const iconElem = a.find('img').first();
         const iconUrl = iconElem.attr('data-original') || iconElem.attr('src');
 
-        // Extract clean numerical version
-        const verMatch = fullText.match(/\b(?:v|version\s*)?(\d+\.\d+(\.\d+)*[a-zA-Z0-9.\-_]*)\b/i);
+        // Extract clean numerical version (avoid capturing rating numbers like 8.5)
+        const verMatch = fullText.match(/\b(?:v|version\s*)(\d+(\.\d+)+[a-zA-Z0-9.\-_]*)\b/i) ||
+          fullText.match(/\b(\d+\.\d+\.\d+[a-zA-Z0-9.\-_]*)\b/i);
         const resolvedVer = verMatch ? verMatch[1] : (fallbackVer || 'Latest');
 
         results.push({
