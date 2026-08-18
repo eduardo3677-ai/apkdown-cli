@@ -33,6 +33,7 @@ export * from './utils/arch.js';
 export * from './utils/formatting.js';
 export * from './utils/hash.js';
 export * from './utils/version.js';
+export * from './utils/ci.js';
 
 // Convenient Top-Level Helper Functions
 import { providerRegistry } from './providers/registry.js';
