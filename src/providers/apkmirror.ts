@@ -15,76 +15,89 @@ export class APKMirrorProvider extends BaseProvider {
   public readonly displayName = 'APKMirror';
   public readonly description = 'Extensive archive with alpha/beta/preview releases and multi-arch APK & bundle variants';
   public readonly homepage = 'https://www.apkmirror.com';
+  public override readonly supportsVersionHistory = true;
 
   private baseUrl = 'https://www.apkmirror.com';
 
   public async search(query: string, options: ProviderSearchOptions = {}): Promise<AppSearchResult[]> {
-    const url = `${this.baseUrl}/?post_type=app_release&searchtype=apk&s=${encodeURIComponent(query)}`;
+    const cleanQuery = query.trim();
+    const isPackageId = /^[a-zA-Z][a-zA-Z0-9_]*\.[a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+)*$/.test(cleanQuery);
+    const limit = options.limit || 15;
+    let url = `${this.baseUrl}/?post_type=app_release&searchtype=apk&s=${encodeURIComponent(cleanQuery)}`;
+    const results: AppSearchResult[] = [];
+    let canonicalAppPath: string | undefined;
 
     try {
-      const res = await this.http.get(url, {
-        impersonate: 'safari_ios',
-        headers: {
-          Referer: 'https://www.apkmirror.com/',
-          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        },
-      });
-
-      const $ = cheerio.load(res.data);
-      const results: AppSearchResult[] = [];
-
-      $('.appRow').each((_, element) => {
-        const row = $(element);
-        const titleElem = row.find('.appRowTitle a.fontBlack, .appRowTitle a, a.fontBlack').first();
-        const titleText = titleElem.text().trim();
-        const link = titleElem.attr('href');
-
-        if (!titleText || !link) return;
-
-        const devElem = row.find('.byDeveloper, .byAppName, .byApp').first();
-        const dev = devElem.text().replace(/^by\s+/i, '').trim();
-        const dateElem = row.find('.dateyear_utc').first();
-        const date = dateElem.text().trim();
-        const iconElem = row.find('img.ellipsisText, img').first();
-        const iconSrc = iconElem.attr('src') || iconElem.attr('data-src');
-
-        const cleanLink = link.startsWith('http') ? link : `${this.baseUrl}${link}`;
-        const parts = link.replace(/^\/apk\//, '').replace(/\/$/, '').split('/');
-        const id = cleanLink;
-        const pkgName = parts[1] || parts[0] || 'com.apkmirror.app';
-
-        // Extract version from title if present
-        const verMatch = titleText.match(/(\d+(\.\d+)+[a-zA-Z0-9.\-_]*)/);
-        const version = verMatch ? verMatch[1] : undefined;
-
-        let iconUrl: string | undefined = undefined;
-        if (iconSrc) {
-          if (iconSrc.includes('src=')) {
-            const rawSrcMatch = iconSrc.match(/src=([^&]+)/);
-            iconUrl = rawSrcMatch ? decodeURIComponent(rawSrcMatch[1]) : iconSrc;
-          } else {
-            iconUrl = iconSrc.startsWith('http') ? iconSrc : `${this.baseUrl}${iconSrc}`;
-          }
-        }
-
-        // Deduplicate
-        if (results.some((r) => r.sourceUrl === cleanLink)) return;
-
-        results.push({
-          id,
-          name: titleText,
-          packageName: pkgName,
-          developer: dev || 'APKMirror Publisher',
-          version: version || 'Latest',
-          iconUrl,
-          description: `${titleText} by ${dev || 'APKMirror'}`,
-          provider: this.name,
-          sourceUrl: cleanLink,
-          updatedAt: date,
+      while (url && results.length < limit) {
+        const res = await this.http.get(url, {
+          impersonate: 'safari_ios',
+          headers: {
+            Referer: 'https://www.apkmirror.com/',
+            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          },
         });
-      });
 
-      return results.slice(0, options.limit || 15);
+        const $ = cheerio.load(res.data);
+        $('.appRow').each((_, element) => {
+          if (results.length >= limit) return false;
+          const row = $(element);
+          const titleElem = row.find('.appRowTitle a.fontBlack, .appRowTitle a, a.fontBlack').first();
+          const titleText = titleElem.text().trim();
+          const link = titleElem.attr('href');
+          if (!titleText || !link) return;
+
+          const cleanLink = link.startsWith('http') ? link : `${this.baseUrl}${link}`;
+          const pathSegments = new URL(cleanLink).pathname.split('/').filter(Boolean);
+          const appPath = `/${pathSegments.slice(0, 3).join('/')}/`;
+          if (isPackageId) {
+            canonicalAppPath ||= appPath;
+            if (appPath !== canonicalAppPath) return;
+          }
+          if (results.some((result) => result.sourceUrl === cleanLink)) return;
+
+          const dev = row.find('.byDeveloper, .byAppName, .byApp').first().text().replace(/^by\s+/i, '').trim();
+          const date = row.find('.dateyear_utc').first().text().trim();
+          const iconElem = row.find('img.ellipsisText, img').first();
+          const iconSrc = iconElem.attr('src') || iconElem.attr('data-src');
+          const parts = link.replace(/^\/apk\//, '').replace(/\/$/, '').split('/');
+          const packageName = isPackageId ? cleanQuery : (parts[1] || parts[0] || 'com.apkmirror.app');
+          const verMatch = titleText.match(/(\d+(\.\d+)+[a-zA-Z0-9.\-_]*)/);
+          const version = verMatch ? verMatch[1] : 'Latest';
+          const nativeIdMatch = titleText.match(/\((\d+(?:-[^)]+)?)\)/);
+          const releaseSlug = new URL(cleanLink).pathname.split('/').filter(Boolean).pop() || cleanLink;
+
+          let iconUrl: string | undefined;
+          if (iconSrc) {
+            if (iconSrc.includes('src=')) {
+              const rawSrcMatch = iconSrc.match(/src=([^&]+)/);
+              iconUrl = rawSrcMatch ? decodeURIComponent(rawSrcMatch[1]) : iconSrc;
+            } else {
+              iconUrl = iconSrc.startsWith('http') ? iconSrc : `${this.baseUrl}${iconSrc}`;
+            }
+          }
+
+          results.push({
+            id: cleanLink,
+            name: titleText,
+            packageName,
+            developer: dev || 'APKMirror Publisher',
+            version,
+            versionId: nativeIdMatch?.[1] || releaseSlug,
+            iconUrl,
+            description: `${titleText} by ${dev || 'APKMirror'}`,
+            provider: this.name,
+            sourceUrl: cleanLink,
+            updatedAt: date,
+          });
+        });
+
+        const nextHref = $('a.nextpostslink').first().attr('href');
+        url = nextHref
+          ? (nextHref.startsWith('http') ? nextHref : `${this.baseUrl}/${nextHref.replace(/^\/?/, '')}`)
+          : '';
+      }
+
+      return results.slice(0, limit);
     } catch (err: any) {
       throw new ProviderError(this.name, `Search failed: ${err.message}`, err);
     }
@@ -164,14 +177,17 @@ export class APKMirrorProvider extends BaseProvider {
         const verMatch = varText.match(/(\d+(\.\d+)+[a-zA-Z0-9.\-_]*)/) || title.match(/(\d+(\.\d+)+[a-zA-Z0-9.\-_]*)/);
         const versionName = verMatch ? verMatch[1] : title;
 
-        const codeMatch = varText.match(/\b(\d{5,10})\b/);
+        const codeMatch = title.match(/\((\d{1,10})(?:-|\))/) || varText.match(/\((\d{1,10})\)/);
         const versionCode = codeMatch ? parseInt(codeMatch[1], 10) : undefined;
 
         const { isBeta, channel } = detectReleaseChannel(versionName, `${title} ${varText}`);
         const fullVariantUrl = href.startsWith('http') ? href : `${this.baseUrl}${href}`;
 
+        const releaseId = new URL(appUrl).pathname.split('/').filter(Boolean).pop() || appUrl;
         variants.push({
           id: `apkmirror-${architecture}-${versionCode || variants.length + 1}`,
+          versionId: releaseId,
+          releaseId,
           versionName,
           versionCode,
           architecture,
@@ -204,8 +220,8 @@ export class APKMirrorProvider extends BaseProvider {
         });
       }
 
-      const parts = appUrl.replace(/^\/apk\//, '').replace(/\/$/, '').split('/');
-      const pkg = parts[1] || parts[0] || 'com.apkmirror.app';
+      const pathParts = new URL(appUrl).pathname.replace(/^\/apk\//, '').replace(/\/$/, '').split('/');
+      const pkg = pathParts[1] || pathParts[0] || 'com.apkmirror.app';
 
       return {
         id: appUrl,
@@ -222,6 +238,81 @@ export class APKMirrorProvider extends BaseProvider {
     } catch (err: any) {
       throw new ProviderError(this.name, `Failed to retrieve APKMirror app details: ${err.message}`, err);
     }
+  }
+
+  public override async getVersionHistory(appIdOrPackage: string): Promise<AppDetails> {
+    const packageName = appIdOrPackage.trim();
+    const isPackageId = /^[a-zA-Z][a-zA-Z0-9_]*\.[a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+)*$/.test(packageName);
+    if (!isPackageId) return this.getAppDetails(appIdOrPackage);
+
+    const releases = await this.search(packageName, { limit: 100 });
+    if (releases.length === 0) {
+      throw new ProviderError(this.name, `No APKMirror releases found for exact package "${packageName}"`);
+    }
+
+    const details: AppDetails[] = [];
+    for (let index = 0; index < releases.length; index += 4) {
+      const batch = releases.slice(index, index + 4);
+      const settled = await Promise.allSettled(batch.map((release) => this.getAppDetails(release.id)));
+      for (let offset = 0; offset < settled.length; offset++) {
+        const release = batch[offset];
+        const releaseId = release.versionId || release.id;
+        const versionCodeMatch = releaseId.match(/^(\d+)/);
+        const versionCode = versionCodeMatch ? parseInt(versionCodeMatch[1], 10) : undefined;
+        const outcome = settled[offset];
+
+        if (outcome.status === 'fulfilled') {
+          outcome.value.packageName = packageName;
+          outcome.value.variants = outcome.value.variants.map((variant) => ({
+            ...variant,
+            id: `${variant.id}-${releaseId}`,
+            versionName: variant.versionName === 'Latest' ? (release.version || 'Latest') : variant.versionName,
+            versionCode: variant.versionCode ?? versionCode,
+            versionId: releaseId,
+            releaseId,
+          }));
+          details.push(outcome.value);
+          continue;
+        }
+
+        const { isBeta, channel } = detectReleaseChannel(release.version || '', release.name);
+        details.push({
+          id: release.id,
+          name: release.name,
+          packageName,
+          developer: release.developer,
+          description: release.description,
+          iconUrl: release.iconUrl,
+          provider: this.name,
+          sourceUrl: release.sourceUrl,
+          latestVersion: release.version,
+          variants: [{
+            id: `apkmirror-history-${releaseId}`,
+            versionId: releaseId,
+            releaseId,
+            versionName: release.version || 'Latest',
+            versionCode,
+            architecture: 'universal',
+            packageType: 'UNKNOWN',
+            downloadToken: release.id,
+            isBeta,
+            releaseChannel: channel,
+            releaseDate: release.updatedAt,
+            metadata: { historyOnly: true },
+          }],
+        });
+      }
+    }
+
+    const variants = details.flatMap((detail) => detail.variants);
+    return {
+      ...details[0],
+      id: packageName,
+      packageName,
+      latestVersion: releases[0].version || variants[0]?.versionName || details[0].latestVersion,
+      variants,
+      hasVersionHistory: new Set(variants.map((variant) => variant.releaseId || variant.versionName)).size > 1,
+    };
   }
 
   public override async resolveDownloadUrl(variant: AppVariant): Promise<string> {
@@ -273,7 +364,13 @@ export class APKMirrorProvider extends BaseProvider {
       }
 
       const finalPhpUrl = href2.startsWith('http') ? href2 : `${this.baseUrl}${href2}`;
-      return finalPhpUrl;
+      const finalResponse = await this.http.get(finalPhpUrl, {
+        allowRedirects: false,
+        responseType: 'buffer',
+        impersonate: 'safari_ios',
+        headers: { Referer: step2Url },
+      });
+      return finalResponse.headers.location || finalPhpUrl;
     } catch (err: any) {
       throw new ProviderError(this.name, `APKMirror download resolution failed: ${err.message}`, err);
     }

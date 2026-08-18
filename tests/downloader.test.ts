@@ -62,3 +62,20 @@ describe('ApkDownloader Variant Selection', () => {
     expect(variant.id).toBe('var-stable-armv7');
   });
 });
+
+describe('Downloaded package validation', () => {
+  it('accepts ZIP-based APK/XAPK/APKM signatures and rejects HTML error pages', async () => {
+    const fs = await import('fs');
+    const os = await import('os');
+    const path = await import('path');
+    const { isValidAndroidPackageArchive } = await import('../src/core/downloader.js');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'apkdown-signature-'));
+    const apk = path.join(dir, 'valid.apk');
+    const html = path.join(dir, 'blocked.apk');
+    fs.writeFileSync(apk, Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00]));
+    fs.writeFileSync(html, '<html>403 Forbidden</html>');
+
+    expect(isValidAndroidPackageArchive(apk)).toBe(true);
+    expect(isValidAndroidPackageArchive(html)).toBe(false);
+  });
+});

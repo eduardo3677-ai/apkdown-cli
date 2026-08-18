@@ -71,6 +71,9 @@ export const providersCommand = new Command('providers')
         name: p.name,
         homepage: p.homepage,
         enabled: (currentConfig.providers as Record<string, boolean>)[p.name] !== false,
+        supportsVersionHistory: p.supportsVersionHistory,
+        supportsArchFiltering: p.supportsArchFiltering,
+        supportsBeta: p.supportsBeta,
       }));
       console.log(JSON.stringify(data, null, 2));
       return;

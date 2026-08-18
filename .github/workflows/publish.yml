@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: 'Version bump type (patch, minor, major, none)'
+        description: "Version bump type (patch, minor, major, none)"
         required: false
-        default: 'patch'
+        default: "patch"
         type: choice
         options:
           - patch
@@ -22,6 +22,10 @@ permissions:
   id-token: write
   packages: write
   actions: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   validate:
@@ -37,10 +41,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          registry-url: 'https://registry.npmjs.org'
+          registry-url: "https://registry.npmjs.org"
 
       - name: Install Node Dependencies
-        run: npm ci || npm install
+        run: npm ci
 
       - name: TypeScript Type Checking
         run: npm run typecheck
@@ -52,7 +56,7 @@ jobs:
         run: npm run build
 
   release-and-publish:
-    name: Auto Version, Release & Publish to NPM and Marketplace
+    name: Version, NPM, GitHub Release & Marketplace
     needs: validate
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
@@ -73,13 +77,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          registry-url: 'https://registry.npmjs.org'
+          registry-url: "https://registry.npmjs.org"
 
       - name: Install Dependencies
-        run: npm ci || npm install
+        run: npm ci
 
-      - name: Automated Version Bump & Commit
+      - name: Resolve Release Version with Patch Rollover
         id: version_bump
+        env:
+          REQUESTED_BUMP: ${{ github.event.inputs.bump || '' }}
         run: |
           CURRENT_LOCAL_VER=$(node -p "require('./package.json').version")
           NPM_REMOTE_VER=$(npm view @eduardo3677-ai/apkdown-cli version 2>/dev/null || echo "0.0.0")
@@ -87,68 +93,118 @@ jobs:
           echo "Current Local Version:  ${CURRENT_LOCAL_VER}"
           echo "Current Remote Version: ${NPM_REMOTE_VER}"
 
-          BUMP_TYPE="${{ github.event.inputs.bump }}"
-          
-          # If version is already on NPM or manual bump requested, bump to next version
-          if [ "$CURRENT_LOCAL_VER" = "$NPM_REMOTE_VER" ] || [ -n "$BUMP_TYPE" -a "$BUMP_TYPE" != "none" ]; then
-            TARGET_BUMP="${BUMP_TYPE:-patch}"
-            echo "Auto-bumping version with: ${TARGET_BUMP}..."
-            npm version "$TARGET_BUMP" --no-git-tag-version
-            NEW_VER=$(node -p "require('./package.json').version")
-            
+          export CURRENT_LOCAL_VER NPM_REMOTE_VER REQUESTED_BUMP
+          RELEASE_PLAN=$(node <<'NODE'
+          const local = process.env.CURRENT_LOCAL_VER;
+          const remote = process.env.NPM_REMOTE_VER || '0.0.0';
+          const requested = process.env.REQUESTED_BUMP || '';
+          const parse = (value) => value.split('.').map((part) => Number.parseInt(part, 10) || 0);
+          const compare = (a, b) => {
+            const av = parse(a), bv = parse(b);
+            for (let i = 0; i < 3; i += 1) {
+              if (av[i] !== bv[i]) return av[i] - bv[i];
+            }
+            return 0;
+          };
+          const base = compare(local, remote) >= 0 ? local : remote;
+          let bump = requested && requested !== 'none' ? requested : '';
+          if (!bump && compare(local, remote) <= 0) bump = 'patch';
+          let [major, minor, patch] = parse(base);
+          if (bump === 'major') [major, minor, patch] = [major + 1, 0, 0];
+          if (bump === 'minor') [major, minor, patch] = [major, minor + 1, 0];
+          if (bump === 'patch') {
+            // Project policy: 1.0.9 rolls over to 1.1.0 instead of 1.0.10.
+            [major, minor, patch] = patch >= 9
+              ? [major, minor + 1, 0]
+              : [major, minor, patch + 1];
+          }
+          const version = bump ? `${major}.${minor}.${patch}` : local;
+          process.stdout.write(JSON.stringify({ version, changed: version !== local }));
+          NODE
+          )
+
+          NEW_VER=$(node -e "process.stdout.write(JSON.parse(process.argv[1]).version)" "$RELEASE_PLAN")
+          CHANGED=$(node -e "process.stdout.write(String(JSON.parse(process.argv[1]).changed))" "$RELEASE_PLAN")
+
+          if [ "$CHANGED" = "true" ]; then
+            npm version "$NEW_VER" --no-git-tag-version
             git add package.json package-lock.json
             git commit -m "chore(release): bump version to v${NEW_VER} [skip ci]"
-            git push origin main
+            git push origin HEAD:main
           fi
 
-          # Pull latest commits to ensure synchronous tree
           git pull origin main --rebase
-
           FINAL_VERSION=$(node -p "require('./package.json').version")
           MAJOR_VERSION=$(echo "$FINAL_VERSION" | cut -d. -f1)
 
-          echo "version=${FINAL_VERSION}" >> $GITHUB_OUTPUT
-          echo "tag=v${FINAL_VERSION}" >> $GITHUB_OUTPUT
-          echo "major_tag=v${MAJOR_VERSION}" >> $GITHUB_OUTPUT
+          {
+            echo "version=${FINAL_VERSION}"
+            echo "tag=v${FINAL_VERSION}"
+            echo "major_tag=v${MAJOR_VERSION}"
+            echo "latest_tag=latest"
+          } >> "$GITHUB_OUTPUT"
           echo "Resolved release version: v${FINAL_VERSION}"
 
-      - name: Compile Distribution Bundle with New Version
+      - name: Compile Distribution Bundle
         run: npm run build
 
-      - name: Publish to NPM Registry (@eduardo3677-ai/apkdown-cli)
+      - name: Build Release Artifacts
+        env:
+          VERSION: ${{ steps.version_bump.outputs.version }}
         run: |
-          FINAL_VERSION="${{ steps.version_bump.outputs.version }}"
-          NPM_REMOTE_VER=$(npm view @eduardo3677-ai/apkdown-cli version 2>/dev/null || echo "0.0.0")
+          mkdir -p release-assets
+          npm pack --pack-destination release-assets
+          tar -czf "release-assets/apkdown-cli-v${VERSION}.tar.gz" \
+            dist scripts action.yml README.md LICENSE package.json package-lock.json
+          cp action.yml "release-assets/action-v${VERSION}.yml"
+          sha256sum release-assets/* > "release-assets/SHA256SUMS-v${VERSION}.txt"
+          ls -lah release-assets
 
+      - name: Upload Workflow Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: apkdown-cli-v${{ steps.version_bump.outputs.version }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish to NPM Registry
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
+          FINAL_VERSION: ${{ steps.version_bump.outputs.version }}
+        run: |
+          NPM_REMOTE_VER=$(npm view @eduardo3677-ai/apkdown-cli version 2>/dev/null || echo "0.0.0")
           if [ "$FINAL_VERSION" != "$NPM_REMOTE_VER" ]; then
-            echo "Publishing @eduardo3677-ai/apkdown-cli@${FINAL_VERSION} to NPM..."
             npm publish --access public
           else
             echo "Version ${FINAL_VERSION} already published to NPM."
           fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
 
-      - name: Tag Git Version and Publish GitHub Marketplace Release
-        run: |
-          TAG="${{ steps.version_bump.outputs.tag }}"
-          MAJOR_TAG="${{ steps.version_bump.outputs.major_tag }}"
-          VERSION="${{ steps.version_bump.outputs.version }}"
-
-          echo "Creating Git Tag ${TAG} and updating major tag ${MAJOR_TAG}..."
-
-          # Create or update specific release tag
-          git tag -fa "$TAG" -m "Release ${TAG}"
-          git push origin "$TAG" --force
-
-          # Update floating major tag (e.g. v1) to point to the latest release
-          git tag -fa "$MAJOR_TAG" -m "Update ${MAJOR_TAG} tag to ${TAG}"
-          git push origin "$MAJOR_TAG" --force
-
-          # Create or update GitHub Release for Marketplace
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" \
-            --title "APKDown ${TAG} - Multi-Source Android APK Downloader & GitHub Action" \
-            --generate-notes \
-            --latest
+      - name: Publish GitHub Release and Marketplace Tags
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version_bump.outputs.tag }}
+          MAJOR_TAG: ${{ steps.version_bump.outputs.major_tag }}
+          LATEST_TAG: ${{ steps.version_bump.outputs.latest_tag }}
+          VERSION: ${{ steps.version_bump.outputs.version }}
+        run: |
+          git tag -fa "$TAG" -m "Release ${TAG}"
+          git tag -fa "$MAJOR_TAG" -m "Update ${MAJOR_TAG} to ${TAG}"
+          git tag -fa "$LATEST_TAG" -m "Update latest to ${TAG}"
+          git push origin "$TAG" --force
+          git push origin "$MAJOR_TAG" --force
+          git push origin "$LATEST_TAG" --force
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --title "APKDown ${TAG} - Multi-Source Android APK Downloader & GitHub Action" \
+              --latest
+          else
+            gh release create "$TAG" \
+              --title "APKDown ${TAG} - Multi-Source Android APK Downloader & GitHub Action" \
+              --generate-notes \
+              --latest
+          fi
+
+          gh release upload "$TAG" release-assets/* --clobber
+          echo "Marketplace refs updated: ${MAJOR_TAG} and ${LATEST_TAG} -> ${TAG}"

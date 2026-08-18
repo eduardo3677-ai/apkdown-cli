@@ -19,7 +19,9 @@ export class APKComboProvider extends BaseProvider {
   private baseUrl = 'https://apkcombo.com';
 
   public async search(query: string, options: ProviderSearchOptions = {}): Promise<AppSearchResult[]> {
-    const url = `${this.baseUrl}/search/${encodeURIComponent(query)}`;
+    const cleanQuery = query.trim();
+    const isPackageQuery = /^[a-zA-Z][a-zA-Z0-9_]*\.[a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+)*$/.test(cleanQuery);
+    const url = `${this.baseUrl}/search/${encodeURIComponent(cleanQuery)}`;
 
     try {
       const res = await this.http.get(url, {
@@ -48,6 +50,7 @@ export class APKComboProvider extends BaseProvider {
         const parts = href.replace(/^\//, '').replace(/\/$/, '').split('/');
         const pkg = parts[1] || parts[0];
 
+        if (isPackageQuery && pkg.toLowerCase() !== cleanQuery.toLowerCase()) return;
         if (results.some((r) => r.sourceUrl === `${this.baseUrl}${href}`)) return;
 
         const itemText = item.text().replace(/\s+/g, ' ').trim();
@@ -68,6 +71,20 @@ export class APKComboProvider extends BaseProvider {
         });
       });
 
+      if (isPackageQuery && results.length === 0) {
+        const fallbackTerms = cleanQuery
+          .split('.')
+          .reverse()
+          .filter((part) => part.length > 3 && !['android', 'mobile', 'app'].includes(part.toLowerCase()));
+        for (const term of fallbackTerms) {
+          const fallbackResults = await this.search(term, { ...options, limit: Math.max(options.limit || 15, 20) });
+          const exact = fallbackResults.filter(
+            (result) => result.packageName.toLowerCase() === cleanQuery.toLowerCase()
+          );
+          if (exact.length > 0) return exact.slice(0, options.limit || 15);
+        }
+      }
+
       return results.slice(0, options.limit || 15);
     } catch (err: any) {
       throw new ProviderError(this.name, `Search failed: ${err.message}`, err);
@@ -81,13 +98,13 @@ export class APKComboProvider extends BaseProvider {
     if (!appSlug.startsWith('/') && !appSlug.startsWith('http')) {
       const searchRes = await this.search(appSlug, { limit: 3 });
       const match = searchRes.find(
-        (r) => r.packageName.toLowerCase() === appSlug.toLowerCase() || r.id.toLowerCase().includes(appSlug.toLowerCase())
-      ) || searchRes[0];
+        (r) => r.packageName.toLowerCase() === appSlug.toLowerCase()
+      );
 
       if (match) {
         appSlug = match.id;
       } else {
-        appSlug = `/${appSlug}/${appSlug}/`;
+        throw new ProviderError(this.name, `App "${appIdOrHref}" not found on APKCombo`);
       }
     } else if (appSlug.startsWith('http')) {
       appSlug = appSlug.replace(this.baseUrl, '');
@@ -148,6 +165,8 @@ export class APKComboProvider extends BaseProvider {
 
         variants.push({
           id: `apkcombo-${architecture}-${versionCode || variants.length + 1}`,
+          versionId: versionCode != null ? String(versionCode) : versionName,
+          releaseId: versionCode != null ? String(versionCode) : versionName,
           versionName,
           versionCode,
           architecture,
@@ -199,9 +218,10 @@ export class APKComboProvider extends BaseProvider {
       throw new ProviderError(this.name, `Missing download URL for variant ${variant.id}`);
     }
 
-    // Direct Cloudflare storage URL
-    if (variant.downloadUrl.includes('r2.cloudflarestorage.com')) {
-      return variant.downloadUrl;
+    if (variant.downloadUrl.includes('/r2?')) {
+      const wrapped = new URL(variant.downloadUrl);
+      const direct = wrapped.searchParams.get('u');
+      if (direct) return direct;
     }
 
     return variant.downloadUrl;

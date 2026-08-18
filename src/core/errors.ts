@@ -6,6 +6,26 @@ export class ApkDownError extends Error {
   }
 }
 
+
+export class HttpStatusError extends ApkDownError {
+  public readonly status: number;
+  public readonly url: string;
+  public readonly body: unknown;
+
+  constructor(status: number, statusText: string, url: string, body?: unknown) {
+    super(`HTTP ${status}${statusText ? ` ${statusText}` : ''} for ${url}`, `HTTP_${status}`, {
+      status,
+      statusText,
+      url,
+      body,
+    });
+    this.name = 'HttpStatusError';
+    this.status = status;
+    this.url = url;
+    this.body = body;
+  }
+}
+
 export class ProviderError extends ApkDownError {
   constructor(provider: string, message: string, details?: any) {
     super(`[Provider: ${provider}] ${message}`, 'PROVIDER_ERROR', details);

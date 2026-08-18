@@ -15,6 +15,7 @@ export class FDroidProvider extends BaseProvider {
   public readonly displayName = 'F-Droid (Free & Open Source)';
   public readonly description = 'Official repository for verified FOSS Android apps with verified source & SHA256 hashes';
   public readonly homepage = 'https://f-droid.org';
+  public override readonly supportsVersionHistory = true;
 
   private baseUrl = 'https://f-droid.org';
   private searchUrl = 'https://search.f-droid.org';
@@ -30,7 +31,7 @@ export class FDroidProvider extends BaseProvider {
         const apiRes = await this.http.get(apiUrl, { responseType: 'json' });
         const data = apiRes.data;
 
-        if (data && data.packageName) {
+        if (data && data.packageName && data.packageName.toLowerCase() === cleanQuery.toLowerCase()) {
           const topPkg = data.packages?.[0];
           const version = topPkg?.versionName || 'Latest';
 
@@ -40,6 +41,7 @@ export class FDroidProvider extends BaseProvider {
             packageName: data.packageName,
             developer: data.authorName || 'F-Droid FOSS Community',
             version,
+            versionId: topPkg?.versionCode != null ? String(topPkg.versionCode) : version,
             iconUrl: data.icon ? `${this.baseUrl}/repo/icons-640/${data.icon}` : undefined,
             description: data.summary || data.description || `${data.name || data.packageName} on F-Droid`,
             provider: this.name,
@@ -119,16 +121,19 @@ export class FDroidProvider extends BaseProvider {
         throw new ProviderError(this.name, `App "${pkg}" not found on F-Droid`);
       }
 
-      const variants: AppVariant[] = (data.packages || []).map((p: any, idx: number): AppVariant => {
+      const packages = [...(data.packages || [])].sort((a: any, b: any) => (b.versionCode || 0) - (a.versionCode || 0));
+      const variants: AppVariant[] = packages.map((p: any, idx: number): AppVariant => {
         const archStr = (p.nativecode && p.nativecode.length > 0) ? p.nativecode.join(', ') : 'universal';
         const architecture = normalizeArch(archStr);
         const versionName = p.versionName || `v${p.versionCode}`;
         const { isBeta, channel } = detectReleaseChannel(versionName);
         // Always construct APK filename from packageName + versionCode (apkName may be undefined)
-        const apkFile = `${data.packageName}_${p.versionCode}.apk`;
+        const apkFile = p.apkName || `${data.packageName}_${p.versionCode}.apk`;
 
         return {
           id: `fdroid-${architecture}-${p.versionCode || idx}`,
+          versionId: p.versionCode != null ? String(p.versionCode) : String(idx),
+          releaseId: p.versionCode != null ? String(p.versionCode) : undefined,
           versionName,
           versionCode: p.versionCode,
           architecture,
@@ -159,6 +164,7 @@ export class FDroidProvider extends BaseProvider {
         sourceUrl: `${this.baseUrl}/en/packages/${data.packageName}/`,
         latestVersion: variants[0]?.versionName || 'Latest',
         variants,
+        hasVersionHistory: variants.length > 1,
       };
     } catch (err: any) {
       throw new ProviderError(this.name, `Failed to fetch app details: ${err.message}`, err);

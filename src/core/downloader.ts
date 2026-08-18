@@ -24,6 +24,19 @@ import {
   VariantNotFoundError,
 } from './errors.js';
 
+
+export function isValidAndroidPackageArchive(filePath: string): boolean {
+  if (!fs.existsSync(filePath) || fs.statSync(filePath).size < 4) return false;
+  const fd = fs.openSync(filePath, 'r');
+  try {
+    const signature = Buffer.alloc(4);
+    fs.readSync(fd, signature, 0, 4, 0);
+    return signature[0] === 0x50 && signature[1] === 0x4b && [0x03, 0x05, 0x07].includes(signature[2]);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 export interface ProviderComparisonResult {
   provider: string;
   appName: string;
@@ -151,8 +164,7 @@ export class ApkDownloader {
         if (
           isPackageQuery &&
           details.packageName &&
-          details.packageName.toLowerCase() !== queryOrPackage.toLowerCase() &&
-          !details.packageName.toLowerCase().includes(queryOrPackage.toLowerCase())
+          details.packageName.toLowerCase() !== queryOrPackage.toLowerCase()
         ) {
           return null;
         }
@@ -318,6 +330,13 @@ export class ApkDownloader {
           }
         }
       );
+
+      if (!isValidAndroidPackageArchive(tempFilePath)) {
+        throw new DownloadError(
+          `Downloaded response is not a valid ${variant.packageType} archive (the provider may have returned an HTML error or expired link)`,
+          { provider: provider.name, url: downloadUrl, filePath: tempFilePath }
+        );
+      }
 
       // Rename temp to final
       if (fs.existsSync(tempFilePath)) {

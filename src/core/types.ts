@@ -38,6 +38,8 @@ export interface AppSearchResult {
   developer?: string;
   /** Latest known version string */
   version?: string;
+  /** Provider-native version/release identifier when the result represents a concrete release */
+  versionId?: string;
   /** App icon URL */
   iconUrl?: string;
   /** Short summary or description */
@@ -57,6 +59,10 @@ export interface AppSearchResult {
 export interface AppVariant {
   /** Variant identifier */
   id: string;
+  /** Provider-native version identifier (version code, release ID, tag, or release slug) */
+  versionId?: string;
+  /** Provider-native release identifier when one release contains multiple downloadable variants */
+  releaseId?: string;
   /** Version display string (e.g. 12.9.2-beta) */
   versionName: string;
   /** Integer version code if available */
@@ -122,6 +128,8 @@ export interface AppDetails {
   rating?: number;
   /** Downloads count */
   downloads?: number | string;
+  /** Whether the provider returned a historical release list rather than only the current release */
+  hasVersionHistory?: boolean;
 }
 
 export interface DownloadProgress {

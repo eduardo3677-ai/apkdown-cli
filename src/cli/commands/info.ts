@@ -5,7 +5,7 @@ import { providerRegistry } from '../../providers/registry.js';
 import { Architecture } from '../../core/types.js';
 import { isArchCompatible } from '../../utils/arch.js';
 import { logger } from '../ui/logger.js';
-import { renderVariantsTable } from '../ui/table.js';
+import { renderVariantsTable, renderVersionHistoryTable } from '../ui/table.js';
 import { formatDownloads, formatRating } from '../../utils/formatting.js';
 
 export const infoCommand = new Command('info')
@@ -31,7 +31,10 @@ export const infoCommand = new Command('info')
     }
 
     try {
-      const details = await provider.getAppDetails(app);
+      const isPackageId = /^[a-zA-Z][a-zA-Z0-9_]*\.[a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+)*$/.test(app.trim());
+      const details = isPackageId && provider.supportsVersionHistory
+        ? await provider.getVersionHistory(app)
+        : await provider.getAppDetails(app);
 
       let variantsToDisplay = details.variants;
       if (options.arch && options.arch !== 'all') {
@@ -89,36 +92,42 @@ ${details.description ? details.description.slice(0, 300) + (details.description
 
 export const versionsCommand = new Command('versions')
   .alias('v')
-  .description('List all available releases and architecture variants for an application')
-  .argument('<app>', 'App name or package name')
-  .option('-p, --provider <provider>', 'Provider to inspect', 'aptoide')
+  .description('List every historical release exposed by compatible providers')
+  .argument('<app>', 'Exact Android package name, app name, or provider ID')
+  .option('-p, --provider <provider>', 'Provider to inspect, comma-separated providers, or all', 'all')
   .option('-a, --arch <architecture>', 'Filter variants by architecture (arm64-v8a, armeabi-v7a, x86, x86_64, universal, all)')
-  .option('--json', 'Output variant version list in JSON format', false)
+  .option('--json', 'Output version histories in JSON format', false)
   .action(async (app: string, options: any) => {
-    const provider = providerRegistry.get(options.provider);
-    if (!provider) {
-      if (options.json) {
-        console.error(JSON.stringify({ error: `Unknown provider: "${options.provider}"` }));
-      } else {
-        logger.error(`Unknown provider: "${options.provider}"`);
-      }
-      return;
-    }
-
     try {
-      const details = await provider.getAppDetails(app);
-      let variantsToDisplay = details.variants;
-      if (options.arch && options.arch !== 'all') {
-        variantsToDisplay = details.variants.filter((v) => isArchCompatible(v.architecture, options.arch as Architecture));
-      }
+      const histories = await providerRegistry.getVersionHistories({
+        query: app,
+        provider: options.provider,
+      });
+
+      const filtered = histories.map((details) => ({
+        ...details,
+        variants: options.arch && options.arch !== 'all'
+          ? details.variants.filter((variant) => isArchCompatible(variant.architecture, options.arch as Architecture))
+          : details.variants,
+      })).filter((details) => details.variants.length > 0);
 
       if (options.json) {
-        console.log(JSON.stringify(variantsToDisplay, null, 2));
+        if (options.provider !== 'all' && !options.provider.includes(',')) {
+          console.log(JSON.stringify(filtered[0]?.variants || [], null, 2));
+        } else {
+          console.log(JSON.stringify(filtered, null, 2));
+        }
         return;
       }
 
-      console.log(`\n${pc.bold(details.name)} (${details.packageName}) - Variants:\n`);
-      console.log(renderVariantsTable(variantsToDisplay) + '\n');
+      if (filtered.length === 0) {
+        logger.warn(`No version history found for "${app}" on the selected compatible providers.`);
+        return;
+      }
+
+      const totalVersions = filtered.reduce((sum, details) => sum + details.variants.length, 0);
+      console.log(`\n${pc.bold(app)} - ${totalVersions} version/architecture entries from ${filtered.length} provider(s):\n`);
+      console.log(renderVersionHistoryTable(filtered) + '\n');
     } catch (err: any) {
       if (options.json) {
         console.error(JSON.stringify({ error: err.message }));

@@ -7,7 +7,7 @@ import { FDroidProvider } from './fdroid.js';
 import { IzzyOnDroidProvider } from './izzyondroid.js';
 import { GitHubProvider } from './github.js';
 import { AppGalleryProvider } from './appgallery.js';
-import { AppSearchResult, SearchOptions } from '../core/types.js';
+import { AppDetails, AppSearchResult, SearchOptions } from '../core/types.js';
 import { configManager } from '../core/config.js';
 import { ApkDownError } from '../core/errors.js';
 
@@ -121,6 +121,36 @@ export class ProviderRegistry {
     return this.deduplicateAndRankResults(results, query);
   }
 
+  /**
+   * Loads version histories from one or more providers and keeps only the exact
+   * Android package ID when the input looks like one.
+   */
+  public async getVersionHistories(options: SearchOptions): Promise<AppDetails[]> {
+    const cleanQuery = options.query.trim();
+    const isPackageQuery = /^[a-zA-Z][a-zA-Z0-9_]*\.[a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+)*$/.test(cleanQuery);
+    const hasExplicitProvider = Boolean(options.provider && options.provider.toLowerCase() !== 'all');
+    const providers = this.resolveActiveProviders(options).filter(
+      (provider) => provider.supportsVersionHistory || hasExplicitProvider
+    );
+
+    const settled = await Promise.allSettled(
+      providers.map(async (provider) => {
+        const details = await provider.getVersionHistory(cleanQuery);
+        if (
+          isPackageQuery &&
+          details.packageName.toLowerCase() !== cleanQuery.toLowerCase()
+        ) {
+          return null;
+        }
+        return details;
+      })
+    );
+
+    return settled.flatMap((outcome) =>
+      outcome.status === 'fulfilled' && outcome.value ? [outcome.value] : []
+    );
+  }
+
   private deduplicateAndRankResults(results: AppSearchResult[], query: string): AppSearchResult[] {
     const cleanQuery = query.toLowerCase().trim();
     const isPackageQuery = /^[a-zA-Z][a-zA-Z0-9_]*\.[a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+)*$/.test(cleanQuery);
@@ -129,7 +159,9 @@ export class ProviderRegistry {
     const unique: { item: AppSearchResult; score: number }[] = [];
 
     for (const r of results) {
-      const key = `${r.packageName.toLowerCase()}::${r.provider}`;
+      const key = isPackageQuery
+        ? `${r.packageName.toLowerCase()}::${r.provider}::${r.versionId || r.version || r.id}`
+        : `${r.packageName.toLowerCase()}::${r.provider}`;
       if (seen.has(key)) continue;
       seen.add(key);
 
@@ -148,12 +180,10 @@ export class ProviderRegistry {
 
       if (isPackageQuery) {
         // When searching specifically for package ID (e.g. org.telegram.messenger)
-        if (pkg === cleanQuery || id === cleanQuery) {
+        if (pkg === cleanQuery) {
           score += 10000;
-        } else if (pkg.startsWith(cleanQuery) || cleanQuery.startsWith(pkg)) {
-          score += 5000;
         } else {
-          // If user searched for exact package, drop completely unrelated apps (e.g. discord or forks)
+          // Package ID queries are strict: forks, prefixes, and similarly named apps are excluded.
           continue;
         }
       } else {

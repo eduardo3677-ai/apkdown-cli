@@ -1,6 +1,5 @@
 import https from 'https';
 import http from 'http';
-import tls from 'tls';
 import crypto from 'crypto';
 import zlib from 'zlib';
 import fs from 'fs';
@@ -149,8 +148,7 @@ export class NativeTlsClient implements HttpClient {
   public async request<T = any>(
     url: string,
     options: HttpRequestOptions = {},
-    redirectCount = 0,
-    retryOn403Count = 0
+    redirectCount = 0
   ): Promise<HttpResponse<T>> {
     if (redirectCount > 10) {
       throw new ApkDownError('Too many redirects', 'REDIRECT_LOOP');
@@ -205,12 +203,6 @@ export class NativeTlsClient implements HttpClient {
           // Handle Redirects
           const statusCode = res.statusCode || 200;
 
-          if (statusCode === 403 && retryOn403Count === 0) {
-            res.resume();
-            return setTimeout(() => {
-              resolve(this.request<T>(url, options, redirectCount, 1));
-            }, 500);
-          }
 
           if (
             (statusCode === 301 || statusCode === 302 || statusCode === 303 || statusCode === 307 || statusCode === 308) &&
@@ -323,8 +315,7 @@ export class NativeTlsClient implements HttpClient {
     destPath: string,
     options: HttpRequestOptions = {},
     onProgress?: (bytesWritten: number, totalBytes: number) => void,
-    redirectCount = 0,
-    retryOn403Count = 0
+    redirectCount = 0
   ): Promise<{ filePath: string; bytesWritten: number; totalBytes: number; finalUrl: string }> {
     if (redirectCount > 10) {
       throw new DownloadError('Too many redirects during download');
@@ -353,24 +344,6 @@ export class NativeTlsClient implements HttpClient {
 
           const statusCode = res.statusCode || 200;
 
-          if (statusCode === 403 && retryOn403Count === 0) {
-            res.resume();
-            try {
-              await this.request(url, { ...options, method: 'HEAD' });
-            } catch (e) {
-              // ignore head error
-            }
-            return resolve(
-              this.downloadFile(
-                url,
-                destPath,
-                { ...options, headers: { ...options.headers, Referer: parsedUrl.toString() } },
-                onProgress,
-                redirectCount,
-                1
-              )
-            );
-          }
 
           if (
             (statusCode === 301 || statusCode === 302 || statusCode === 303 || statusCode === 307 || statusCode === 308) &&
@@ -391,7 +364,7 @@ export class NativeTlsClient implements HttpClient {
 
           if (statusCode >= 400) {
             res.resume();
-            return reject(new DownloadError(`Download failed with HTTP ${statusCode}: ${res.statusMessage}`));
+            return reject(new DownloadError(`Download failed with HTTP ${statusCode}: ${res.statusMessage}`, { status: statusCode, url: parsedUrl.toString() }));
           }
 
           const contentLength = res.headers['content-length'];

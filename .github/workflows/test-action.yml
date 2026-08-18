@@ -1,17 +1,9 @@
 name: Test APKDown GitHub Action
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'action.yml'
-      - 'scripts/**'
-      - 'src/**'
-      - '.github/workflows/test-action.yml'
-  pull_request:
-    branches:
-      - main
+  release:
+    types:
+      - published
   workflow_dispatch:
 
 jobs:
@@ -26,12 +18,12 @@ jobs:
       # Scenario 1: Multi-Provider Automatic Comparison to Root Workspace
       - name: "Scenario 1: Auto Cross-Provider Download (Root Workspace)"
         id: test_auto
-        uses: ./
+        uses: eduardo3677-ai/apkdown-cli@latest
         with:
-          id: 'org.videolan.vlc'
-          provider: 'all'
-          arch: 'auto'
-          output-dir: './'
+          id: "org.videolan.vlc"
+          provider: "all"
+          arch: "auto"
+          output-dir: "./"
 
       - name: "Validate Scenario 1 Outputs"
         run: |
@@ -48,13 +40,13 @@ jobs:
       # Scenario 2: Specific Provider (F-Droid) with Architecture & Custom Filename
       - name: "Scenario 2: Specific Provider (FDroid) + Custom Filename"
         id: test_fdroid
-        uses: ./
+        uses: eduardo3677-ai/apkdown-cli@latest
         with:
-          id: 'org.fdroid.fdroid'
-          provider: 'fdroid'
-          arch: 'arm64-v8a'
-          filename: 'fdroid-arm64-official.apk'
-          output-dir: './'
+          id: "org.fdroid.fdroid"
+          provider: "fdroid"
+          arch: "arm64-v8a"
+          filename: "fdroid-arm64-official.apk"
+          output-dir: "./"
 
       - name: "Validate Scenario 2 Outputs"
         run: |
@@ -64,13 +56,13 @@ jobs:
       # Scenario 3: Provider Exclusion + Channel Filtering
       - name: "Scenario 3: Provider Exclusion (-x appgallery,aptoide) + Stable Channel"
         id: test_exclusion
-        uses: ./
+        uses: eduardo3677-ai/apkdown-cli@latest
         with:
-          id: 'org.schabi.newpipe'
-          exclude-provider: 'appgallery,aptoide'
-          arch: 'universal'
-          channel: 'stable'
-          output-dir: './'
+          id: "org.schabi.newpipe"
+          exclude-provider: "appgallery,aptoide"
+          arch: "universal"
+          channel: "stable"
+          output-dir: "./"
 
       - name: "Validate Scenario 3 Outputs"
         run: |
@@ -80,12 +72,12 @@ jobs:
       # Scenario 4: GitHub Releases Source + Custom Directory
       - name: "Scenario 4: GitHub Releases Source + Custom Subdirectory"
         id: test_github
-        uses: ./
+        uses: eduardo3677-ai/apkdown-cli@latest
         with:
-          id: 'libre-tube/LibreTube'
-          provider: 'github'
-          arch: 'arm64-v8a'
-          output-dir: './downloaded_artifacts'
+          id: "libre-tube/LibreTube"
+          provider: "github"
+          arch: "arm64-v8a"
+          output-dir: "./downloaded_artifacts"
 
       - name: "Validate Scenario 4 Outputs"
         run: |

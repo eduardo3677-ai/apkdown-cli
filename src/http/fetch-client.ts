@@ -121,7 +121,7 @@ export class FetchClient implements HttpClient {
       });
 
       if (!res.ok) {
-        throw new DownloadError(`Download failed with HTTP ${res.status}: ${res.statusText}`);
+        throw new DownloadError(`Download failed with HTTP ${res.status}: ${res.statusText}`, { status: res.status, url: res.url });
       }
 
       if (!res.body) {

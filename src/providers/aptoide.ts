@@ -29,7 +29,7 @@ export class AptoideProvider extends BaseProvider {
           responseType: 'json',
         });
         const meta = directRes.data?.nodes?.meta?.data;
-        if (meta && meta.package) {
+        if (meta && meta.package && meta.package.toLowerCase() === cleanQuery.toLowerCase()) {
           const file = meta.file || {};
           const verName = file.vername || 'Latest';
           const major = parseInt(verName.split(/[\.-]/)[0], 10);
@@ -41,6 +41,7 @@ export class AptoideProvider extends BaseProvider {
               packageName: meta.package,
               developer: meta.developer?.name || meta.store?.name || 'Aptoide Dev',
               version: verName,
+              versionId: file.vercode != null ? String(file.vercode) : verName,
               iconUrl: meta.icon || meta.graphic,
               description: meta.media?.description || `${meta.name} on Aptoide`,
               provider: this.name,
@@ -170,6 +171,7 @@ export class AptoideProvider extends BaseProvider {
 
       const variant: AppVariant = {
         id: `${meta.package}-${file.vercode || file.vername || 'latest'}`,
+        versionId: file.vercode != null ? String(file.vercode) : (file.vername || 'latest'),
         versionName: file.vername || 'Latest',
         versionCode: file.vercode,
         architecture,

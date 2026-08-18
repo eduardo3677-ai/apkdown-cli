@@ -104,8 +104,13 @@ export class AppGalleryProvider extends BaseProvider {
       if (data.app && data.app.package) {
         const app = data.app;
 
-        // Filter: if searching for exact package ID, only return exact matches
-        if (isPackageQuery && app.package.toLowerCase() !== query.toLowerCase()) {
+        // Huawei's completion endpoint may return unrelated sponsored/top apps.
+        const queryLower = query.toLowerCase().trim();
+        const isRelevant =
+          app.package.toLowerCase() === queryLower ||
+          app.package.toLowerCase().includes(queryLower) ||
+          String(app.name || '').toLowerCase().includes(queryLower);
+        if ((isPackageQuery && app.package.toLowerCase() !== queryLower) || (!isPackageQuery && !isRelevant)) {
           return [];
         }
 
@@ -117,6 +122,7 @@ export class AppGalleryProvider extends BaseProvider {
           packageName: app.package,
           developer: app.kindName || 'Huawei AppGallery',
           version: app.version || 'Latest',
+          versionId: app.versionCode ? String(app.versionCode) : (app.version || 'Latest'),
           iconUrl: icon,
           description: app.memo || app.intro || `${app.name} on Huawei AppGallery`,
           provider: this.name,
@@ -228,6 +234,8 @@ export class AppGalleryProvider extends BaseProvider {
 
       const variant: AppVariant = {
         id: `appgallery-${appId}`,
+        versionId: versionName || appId,
+        releaseId: versionName || appId,
         versionName: versionName || 'Latest',
         architecture: 'universal',
         packageType: 'APK',

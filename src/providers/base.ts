@@ -26,6 +26,9 @@ export abstract class BaseProvider {
   /** Whether this provider exposes architecture-specific variants */
   public readonly supportsArchFiltering: boolean = true;
 
+  /** Whether this provider can enumerate historical releases for an app */
+  public readonly supportsVersionHistory: boolean = false;
+
   protected http: HttpClient;
 
   constructor(httpClient: HttpClient = defaultHttpClient) {
@@ -44,6 +47,14 @@ export abstract class BaseProvider {
    * Retrieves full application details including all available variants
    */
   public abstract getAppDetails(appIdOrPackage: string): Promise<AppDetails>;
+
+  /**
+   * Retrieves every historical release exposed by the provider. Providers without
+   * a dedicated history endpoint fall back to their normal details response.
+   */
+  public async getVersionHistory(appIdOrPackage: string): Promise<AppDetails> {
+    return this.getAppDetails(appIdOrPackage);
+  }
 
   /**
    * Resolves the final direct download URL for a given variant

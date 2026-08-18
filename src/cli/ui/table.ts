@@ -93,21 +93,58 @@ export function renderVariantsTable(variants: AppVariant[]): string {
   return table.toString();
 }
 
+
+export function renderVersionHistoryTable(histories: AppDetails[]): string {
+  const table = new Table({
+    head: [
+      pc.cyan('#'),
+      pc.cyan('Provider'),
+      pc.cyan('Version'),
+      pc.cyan('Version ID'),
+      pc.cyan('Code'),
+      pc.cyan('Arch'),
+      pc.cyan('Format'),
+      pc.cyan('Date'),
+    ],
+    style: { head: [], border: ['grey'] },
+  });
+
+  let index = 0;
+  for (const details of histories) {
+    for (const variant of details.variants) {
+      index += 1;
+      table.push([
+        pc.gray(String(index)),
+        pc.cyan(details.provider),
+        pc.bold(variant.versionName),
+        pc.dim(variant.versionId || variant.releaseId || variant.id),
+        variant.versionCode != null ? String(variant.versionCode) : 'N/A',
+        variant.architecture,
+        pc.magenta(variant.packageType),
+        variant.releaseDate || 'N/A',
+      ]);
+    }
+  }
+
+  return table.toString();
+}
+
 export function renderProvidersTable(providers: BaseProvider[], enabledMap: Record<string, boolean>): string {
   const table = new Table({
-    head: [pc.cyan('Provider'), pc.cyan('Status'), pc.cyan('Beta'), pc.cyan('Arch Filter'), pc.cyan('Description')],
+    head: [pc.cyan('Provider'), pc.cyan('Status'), pc.cyan('History'), pc.cyan('Beta'), pc.cyan('Arch Filter'), pc.cyan('Description')],
     style: { head: [], border: ['grey'] },
-    colWidths: [16, 12, 10, 14, 45],
+    colWidths: [16, 12, 10, 10, 14, 40],
     wordWrap: true,
   });
 
   providers.forEach((p) => {
     const isEnabled = enabledMap[p.name] !== false;
     const status = isEnabled ? pc.green('✔ Enabled') : pc.red('✖ Disabled');
+    const history = p.supportsVersionHistory ? pc.green('Yes') : pc.dim('No');
     const beta = p.supportsBeta ? pc.green('Yes') : pc.dim('No');
     const arch = p.supportsArchFiltering ? pc.green('Yes') : pc.dim('No');
 
-    table.push([pc.bold(p.name), status, beta, arch, pc.dim(p.description)]);
+    table.push([pc.bold(p.name), status, history, beta, arch, pc.dim(p.description)]);
   });
 
   return table.toString();

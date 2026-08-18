@@ -14,6 +14,7 @@ export class GitHubProvider extends BaseProvider {
   public readonly displayName = 'GitHub Releases';
   public readonly description = 'Direct releases from open-source GitHub Android repositories with prerelease & multi-arch APKs';
   public readonly homepage = 'https://github.com';
+  public override readonly supportsVersionHistory = true;
 
   private baseUrl = 'https://api.github.com';
 
@@ -38,6 +39,11 @@ export class GitHubProvider extends BaseProvider {
     const qLower = query.toLowerCase().trim();
     const results: AppSearchResult[] = [];
 
+    const isPackageId = /^[a-zA-Z][a-zA-Z0-9_]*\.[a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+)*$/.test(query.trim());
+    if (isPackageId && !this.curatedRepos[qLower]) {
+      return [];
+    }
+
     // 1. Check curated list first
     for (const [key, info] of Object.entries(this.curatedRepos)) {
       if (
@@ -49,7 +55,7 @@ export class GitHubProvider extends BaseProvider {
           results.push({
             id: info.repo,
             name: info.name,
-            packageName: info.repo.toLowerCase().replace('/', '.'),
+            packageName: info.repo,
             developer: info.repo.split('/')[0],
             version: 'Latest',
             description: info.desc,
@@ -76,7 +82,7 @@ export class GitHubProvider extends BaseProvider {
           results.push({
             id: item.full_name,
             name: item.name,
-            packageName: item.full_name.toLowerCase().replace('/', '.'),
+            packageName: item.full_name,
             developer: item.owner?.login || 'GitHub Dev',
             version: 'Latest',
             iconUrl: item.owner?.avatar_url,
@@ -120,7 +126,7 @@ export class GitHubProvider extends BaseProvider {
 
       const variants: AppVariant[] = [];
 
-      for (const release of releases.slice(0, 8)) {
+      for (const release of releases) {
         const tagName = release.tag_name || release.name || 'vLatest';
         const isPrerelease = release.prerelease || false;
         const { isBeta, channel } = detectReleaseChannel(tagName, release.body || '');
@@ -134,6 +140,8 @@ export class GitHubProvider extends BaseProvider {
           const architecture = normalizeArch(asset.name);
           variants.push({
             id: `gh-${asset.id}`,
+            versionId: release.id != null ? String(release.id) : tagName,
+            releaseId: release.id != null ? String(release.id) : tagName,
             versionName: tagName,
             architecture,
             packageType: asset.name.endsWith('.xapk') ? 'XAPK' : 'APK',
@@ -161,13 +169,14 @@ export class GitHubProvider extends BaseProvider {
       return {
         id: cleanRepo,
         name: repoName,
-        packageName: cleanRepo.toLowerCase().replace('/', '.'),
+        packageName: cleanRepo,
         developer: owner,
         description: releases[0]?.body || `GitHub repository for ${cleanRepo}`,
         provider: this.name,
         sourceUrl: `https://github.com/${cleanRepo}`,
         latestVersion: variants[0]?.versionName || 'Latest',
         variants,
+        hasVersionHistory: new Set(variants.map((variant) => variant.releaseId || variant.versionName)).size > 1,
       };
     } catch (err: any) {
       throw new ProviderError(this.name, `Failed to retrieve GitHub details: ${err.message}`, err);

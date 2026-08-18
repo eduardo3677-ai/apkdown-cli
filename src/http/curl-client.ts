@@ -53,7 +53,7 @@ export class CurlClient implements HttpClient {
         try {
           const parsed = JSON.parse(stdoutData.trim());
           if (parsed.error && parsed.status >= 400 && !parsed.body) {
-            return reject(new ApkDownError(parsed.error, `HTTP_${parsed.status}`));
+            return reject(new ApkDownError(parsed.error, `HTTP_${parsed.status}`, { status: parsed.status, url: payload.url }));
           }
           resolve(parsed);
         } catch (err) {
@@ -132,7 +132,7 @@ export class CurlClient implements HttpClient {
     });
 
     if (res.error) {
-      throw new ApkDownError(res.error, `HTTP_${res.status}`);
+      throw new ApkDownError(res.error, `HTTP_${res.status}`, { status: res.status, url });
     }
 
     return {
