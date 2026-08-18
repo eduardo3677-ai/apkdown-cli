@@ -85,8 +85,8 @@ jobs:
 | `version` | `string` | No | `latest` | Versión específica a descargar (ej. `12.9.2`) o `"latest"` para la última disponible. |
 | `channel` | `string` | No | `stable` | Canal de lanzamiento: `stable`, `beta`, `alpha`, `insider`, `preview`, `all`. |
 | `allow-beta` | `boolean` | No | `false` | Habilita la descarga de versiones Beta / Preview / Prerelease. |
-| `output-dir` | `string` | No | `./downloads` | Directorio donde se guardará el archivo descargado. |
-| `filename` | `string` | No | `""` | Nombre personalizado para el archivo guardado (opcional). |
+| `output-dir` | `string` | No | `./` | Directorio de destino para el archivo (por defecto: directorio de trabajo del runner `./`). |
+| `filename` | `string` | No | `""` | Nombre personalizado para el archivo guardado. |
 | `verify-checksum` | `boolean` | No | `true` | Valida automáticamente los hashes criptográficos (SHA-256 / MD5). |
 
 ---

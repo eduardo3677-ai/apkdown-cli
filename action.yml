@@ -35,9 +35,9 @@ inputs:
     required: false
     default: 'false'
   output-dir:
-    description: 'Directory where the downloaded APK will be saved'
+    description: 'Directory where the downloaded APK will be saved (defaults to current runner workspace ./)'
     required: false
-    default: './downloads'
+    default: './'
   filename:
     description: 'Custom output file name'
     required: false

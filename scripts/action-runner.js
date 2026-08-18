@@ -42,7 +42,7 @@ async function run() {
   const version = process.env.INPUT_VERSION || 'latest';
   const channel = process.env.INPUT_CHANNEL || 'stable';
   const allowBeta = process.env.INPUT_ALLOW_BETA === 'true' || channel !== 'stable';
-  const outputDir = path.resolve(process.cwd(), process.env.INPUT_OUTPUT_DIR || './downloads');
+  const outputDir = path.resolve(process.cwd(), process.env.INPUT_OUTPUT_DIR || './');
   const filename = process.env.INPUT_FILENAME || undefined;
   const verifyChecksum = process.env.INPUT_VERIFY_CHECKSUM !== 'false';
 
