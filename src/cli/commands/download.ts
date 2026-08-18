@@ -13,9 +13,10 @@ export const downloadCommand = new Command('download')
   .alias('d')
   .description('Download an APK or bundle from supported providers (auto-compares versions if provider is omitted)')
   .argument('<app>', 'App name, package name, or URL/repository to download')
-  .option('-p, --provider <provider>', 'Provider to use (aptoide, apkmirror, apkpure, apkcombo, fdroid, izzyondroid, github, appgallery, or all)', 'all')
+  .option('-p, --provider <providers>', 'Provider to use or comma-separated list (aptoide, apkmirror, apkpure, apkcombo, fdroid, izzyondroid, github, appgallery, or all)', 'all')
+  .option('-x, --exclude <providers>', 'Comma-separated list of providers to exclude (e.g. appgallery,aptoide)')
   .option('-v, --version <version>', 'Specific version string to download (e.g. 12.9.2 or "latest")', 'latest')
-  .option('-a, --arch <architecture>', 'Target CPU architecture (arm64-v8a, armeabi-v7a, x86_64, universal, all)')
+  .option('-a, --arch <architecture>', 'Target CPU architecture (arm64-v8a, armeabi-v7a, x86, x86_64, universal, all)')
   .option('-c, --channel <channel>', 'Release channel: stable, beta, alpha, insider, preview, all', 'stable')
   .option('-b, --beta', 'Shorthand to include/allow beta releases', false)
   .option('-o, --output <dir>', 'Target output directory for the downloaded APK')
@@ -25,12 +26,21 @@ export const downloadCommand = new Command('download')
     const config = configManager.getAll();
     let targetProvider = options.provider;
 
+    const excludeList = options.exclude
+      ? options.exclude.split(',').map((p: string) => p.trim().toLowerCase()).filter(Boolean)
+      : [];
+
     logger.info(`Resolving download target for "${pc.bold(app)}"...`);
 
-    try {
-      let chosenProvider = targetProvider;
-      let chosenAppId = app;
+    if (excludeList.length > 0) {
+      logger.info(`Excluding providers: ${excludeList.map((p: string) => pc.yellow(p)).join(', ')}`);
+    }
 
+    if (options.arch) {
+      logger.info(`Filtering for architecture: ${pc.cyan(pc.bold(options.arch))}`);
+    }
+
+    try {
       if (targetProvider === 'all' || !targetProvider) {
         logger.info('Searching across all providers to find and compare latest versions...');
       }
@@ -38,15 +48,18 @@ export const downloadCommand = new Command('download')
       let bar: any = null;
 
       const effectiveChannel = options.beta ? 'beta' : (options.channel as ReleaseChannel);
+      const preferredArch = (options.arch as Architecture) || config.preferredArch;
 
       const result = await ApkDownloader.download(
         targetProvider === 'all' ? undefined : targetProvider,
         app,
         {
           version: options.version,
-          preferredArch: options.arch as Architecture,
+          preferredArch,
+          arch: preferredArch,
           channel: effectiveChannel,
           allowBeta: options.beta || effectiveChannel !== 'stable',
+          excludeProviders: excludeList,
           outputDir: options.output,
           forceOverwrite: options.force,
           verifyChecksum: options.verify !== false,
@@ -60,15 +73,17 @@ export const downloadCommand = new Command('download')
                 pc.bold('Package'),
                 pc.bold('Found Version'),
                 pc.bold('Format'),
+                pc.bold('Arch'),
                 pc.bold('Status'),
               ],
-              colWidths: [15, 25, 28, 16, 10, 16],
+              colWidths: [14, 23, 26, 14, 9, 12, 16],
             });
 
             for (const cand of candidates) {
               const isWinner = cand.provider === chosen.provider;
               const status = isWinner ? pc.green(pc.bold('★ LATEST SELECTED')) : pc.dim('Alternative');
               const format = cand.bestVariant.packageType;
+              const arch = cand.bestVariant.architecture;
 
               table.push([
                 isWinner ? pc.cyan(pc.bold(cand.provider)) : cand.provider,
@@ -76,12 +91,13 @@ export const downloadCommand = new Command('download')
                 cand.packageName,
                 isWinner ? pc.green(pc.bold(cand.version)) : cand.version,
                 format,
+                arch,
                 status,
               ]);
             }
 
             console.log(table.toString() + '\n');
-            logger.info(`Selected latest version ${pc.green(pc.bold(chosen.version))} from ${pc.cyan(pc.bold(chosen.provider))}`);
+            logger.info(`Selected latest version ${pc.green(pc.bold(chosen.version))} (${chosen.bestVariant.architecture}) from ${pc.cyan(pc.bold(chosen.provider))}`);
           },
           onProgress: (p: DownloadProgress) => {
             if (!bar) {

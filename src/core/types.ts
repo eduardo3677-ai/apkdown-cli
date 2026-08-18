@@ -140,6 +140,8 @@ export interface DownloadOptions {
   filename?: string;
   /** Preferred architecture filter */
   preferredArch?: Architecture;
+  /** Target architecture filter alias */
+  arch?: Architecture;
   /** Preferred release channel */
   channel?: ReleaseChannel;
   /** Allow beta or prerelease versions */
@@ -152,6 +154,10 @@ export interface DownloadOptions {
   forceOverwrite?: boolean;
   /** Verify MD5 / SHA256 hashes if available */
   verifyChecksum?: boolean;
+  /** List of providers to exclude from search or auto-comparison */
+  excludeProviders?: string[];
+  /** Explicit list of enabled providers to include */
+  includeProviders?: string[];
   /** Callback for progress updates */
   onProgress?: (progress: DownloadProgress) => void;
 }
@@ -176,8 +182,12 @@ export interface ProviderSearchOptions {
 export interface SearchOptions {
   /** Query keyword or package name */
   query: string;
-  /** Specific provider name, or 'all' */
+  /** Specific provider name, or 'all', or comma-separated list */
   provider?: string;
+  /** List of providers to exclude */
+  excludeProviders?: string[];
+  /** Explicit list of providers to include */
+  includeProviders?: string[];
   /** Maximum results per provider */
   limit?: number;
   /** Allow beta/insider versions in search results */
@@ -203,7 +213,9 @@ export interface ApkDownConfig {
     apkpure: boolean;
     apkcombo: boolean;
     fdroid: boolean;
+    izzyondroid: boolean;
     github: boolean;
     appgallery: boolean;
+    [key: string]: boolean;
   };
 }

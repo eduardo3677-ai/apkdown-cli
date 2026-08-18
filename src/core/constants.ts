@@ -29,6 +29,7 @@ export const DEFAULT_CONFIG: ApkDownConfig = {
     apkpure: true,
     apkcombo: true,
     fdroid: true,
+    izzyondroid: true,
     github: true,
     appgallery: true,
   },

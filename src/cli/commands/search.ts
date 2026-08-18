@@ -10,27 +10,37 @@ import { formatBytes, formatDuration, formatSpeed } from '../../utils/formatting
 
 export const searchCommand = new Command('search')
   .alias('s')
-  .description('Search APKs across multiple repositories (Aptoide, APKMirror, APKPure, APKCombo, F-Droid, GitHub, AppGallery)')
+  .description('Search APKs across multiple repositories with provider exclusion and architecture filtering')
   .argument('<query>', 'App name or package identifier to search for')
-  .option('-p, --provider <provider>', 'Filter by provider (aptoide, apkmirror, apkpure, apkcombo, fdroid, github, appgallery, or all)', 'all')
+  .option('-p, --provider <providers>', 'Filter by provider or comma-separated list (aptoide, apkmirror, apkpure, apkcombo, fdroid, izzyondroid, github, appgallery, or all)', 'all')
+  .option('-x, --exclude <providers>', 'Comma-separated list of providers to exclude (e.g. appgallery,aptoide)')
   .option('-l, --limit <number>', 'Maximum number of results to display', '15')
   .option('-b, --beta', 'Include Beta, Alpha, and Insider preview versions', false)
-  .option('-a, --arch <architecture>', 'Target CPU architecture (arm64-v8a, armeabi-v7a, x86_64, universal, all)')
+  .option('-a, --arch <architecture>', 'Filter variants by target CPU architecture (arm64-v8a, armeabi-v7a, x86, x86_64, universal, all)')
   .option('-d, --download', 'Prompt to immediately download a selected result', false)
   .action(async (query: string, options: any) => {
     logger.info(`Searching for "${pc.bold(query)}" across providers...`);
+
+    const excludeList = options.exclude
+      ? options.exclude.split(',').map((p: string) => p.trim().toLowerCase()).filter(Boolean)
+      : [];
+
+    if (excludeList.length > 0) {
+      logger.info(`Excluding providers: ${excludeList.map((p: string) => pc.yellow(p)).join(', ')}`);
+    }
 
     try {
       const results = await providerRegistry.search({
         query,
         provider: options.provider,
+        excludeProviders: excludeList,
         limit: parseInt(options.limit, 10) || 15,
         includeBeta: options.beta,
         arch: options.arch as Architecture,
       });
 
       if (results.length === 0) {
-        logger.warn(`No APKs found matching "${query}". Try searching another keyword or provider.`);
+        logger.warn(`No APKs found matching "${query}". Try searching another keyword or adjusting filters.`);
         return;
       }
 

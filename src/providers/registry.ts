@@ -58,24 +58,50 @@ export class ProviderRegistry {
   }
 
   /**
+   * Resolves list of active providers respecting includes, excludes, and config
+   */
+  public resolveActiveProviders(options: {
+    provider?: string;
+    excludeProviders?: string[];
+    includeProviders?: string[];
+  }): BaseProvider[] {
+    const { provider, excludeProviders = [], includeProviders = [] } = options;
+    const normalizedExcludes = new Set(excludeProviders.map((p) => p.toLowerCase().trim()));
+
+    // 1. If explicit comma-separated or single provider specified
+    if (provider && provider.toLowerCase() !== 'all') {
+      const names = provider.split(',').map((p) => p.trim().toLowerCase()).filter(Boolean);
+      const matched = names
+        .map((n) => this.get(n))
+        .filter((p): p is BaseProvider => p !== undefined && !normalizedExcludes.has(p.name));
+
+      if (matched.length === 0) {
+        throw new ApkDownError(`No valid active providers found for "${provider}"`, 'PROVIDER_NOT_FOUND');
+      }
+      return matched;
+    }
+
+    // 2. If includeProviders array is specified
+    if (includeProviders.length > 0) {
+      const normalizedIncludes = new Set(includeProviders.map((p) => p.toLowerCase().trim()));
+      return this.getAll().filter((p) => normalizedIncludes.has(p.name) && !normalizedExcludes.has(p.name));
+    }
+
+    // 3. Default to all enabled providers minus exclusions
+    return this.getEnabledProviders().filter((p) => !normalizedExcludes.has(p.name));
+  }
+
+  /**
    * Searches across selected or all active providers with concurrency control
    */
   public async search(options: SearchOptions): Promise<AppSearchResult[]> {
-    const { query, provider, limit = 10, includeBeta = false, arch } = options;
+    const { query, limit = 10, includeBeta = false, arch } = options;
+    const targetProviders = this.resolveActiveProviders(options);
 
-    if (provider && provider.toLowerCase() !== 'all') {
-      const target = this.get(provider);
-      if (!target) {
-        throw new ApkDownError(`Unknown provider: "${provider}"`, 'PROVIDER_NOT_FOUND');
-      }
-      return await target.search(query, { limit, includeBeta, arch });
-    }
-
-    const enabled = this.getEnabledProviders();
     const results: AppSearchResult[] = [];
 
     // Run parallel searches with Promise.allSettled
-    const searchPromises = enabled.map(async (p) => {
+    const searchPromises = targetProviders.map(async (p) => {
       try {
         const res = await p.search(query, { limit, includeBeta, arch });
         return res;

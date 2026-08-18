@@ -30,6 +30,7 @@ export const ConfigSchema = z.object({
     apkpure: z.boolean().default(true),
     apkcombo: z.boolean().default(true),
     fdroid: z.boolean().default(true),
+    izzyondroid: z.boolean().default(true),
     github: z.boolean().default(true),
     appgallery: z.boolean().default(true),
   }).default(DEFAULT_CONFIG.providers),

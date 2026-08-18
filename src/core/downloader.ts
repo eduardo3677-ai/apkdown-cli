@@ -39,7 +39,7 @@ export class ApkDownloader {
     options: DownloadOptions = {}
   ): AppVariant {
     const config = configManager.getAll();
-    const preferredArch = options.preferredArch || config.preferredArch;
+    const preferredArch = options.preferredArch || options.arch || config.preferredArch;
     const requestedVersion = options.version?.toLowerCase();
     const requestedChannel = options.channel || config.defaultChannel;
     const allowBeta = options.allowBeta ?? config.includeBeta;
@@ -73,19 +73,21 @@ export class ApkDownloader {
     }
 
     // Filter and score by Architecture
-    const compatible = candidates.filter((v) =>
-      isArchCompatible(v.architecture, preferredArch)
-    );
+    if (preferredArch && preferredArch !== 'all') {
+      const compatible = candidates.filter((v) =>
+        isArchCompatible(v.architecture, preferredArch)
+      );
 
-    if (compatible.length > 0) {
-      // Prioritize exact arch match first, then universal
-      const exactMatch = compatible.find((v) => v.architecture === preferredArch);
-      if (exactMatch) return exactMatch;
+      if (compatible.length > 0) {
+        // Prioritize exact arch match first, then universal
+        const exactMatch = compatible.find((v) => v.architecture === preferredArch);
+        if (exactMatch) return exactMatch;
 
-      const universalMatch = compatible.find((v) => v.architecture === 'universal');
-      if (universalMatch) return universalMatch;
+        const universalMatch = compatible.find((v) => v.architecture === 'universal');
+        if (universalMatch) return universalMatch;
 
-      return compatible[0];
+        return compatible[0];
+      }
     }
 
     if (candidates.length > 0) {
@@ -96,7 +98,7 @@ export class ApkDownloader {
       return app.variants[0];
     }
 
-    throw new VariantNotFoundError(app.name, preferredArch, requestedVersion);
+    throw new VariantNotFoundError(app.name, preferredArch || 'any', requestedVersion);
   }
 
   /**
@@ -110,11 +112,13 @@ export class ApkDownloader {
     const config = configManager.getAll();
     const effectiveChannel = options.channel || config.defaultChannel;
     const includeBeta = options.allowBeta ?? (effectiveChannel !== 'stable');
-    const preferredArch = options.preferredArch || config.preferredArch;
+    const preferredArch = options.preferredArch || options.arch || config.preferredArch;
 
-    // 1. Search across all enabled providers in parallel
+    // 1. Search across active providers (taking into account exclusions and inclusions)
     const searchResults = await providerRegistry.search({
       query: queryOrPackage,
+      excludeProviders: options.excludeProviders,
+      includeProviders: options.includeProviders,
       limit: 3,
       includeBeta,
       arch: preferredArch,
@@ -122,7 +126,7 @@ export class ApkDownloader {
 
     if (searchResults.length === 0) {
       throw new ApkDownError(
-        `Could not find any matching APK for "${queryOrPackage}" across any enabled providers.`,
+        `Could not find any matching APK for "${queryOrPackage}" across active providers.`,
         'APP_NOT_FOUND'
       );
     }
