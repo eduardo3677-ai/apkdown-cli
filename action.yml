@@ -1,0 +1,110 @@
+name: 'APKDown - Multi-Source Android APK Downloader'
+description: 'Download Android APKs, XAPKs, and bundles across 8 providers with automatic version comparison and architecture filtering.'
+author: 'eduardo3677-ai'
+
+branding:
+  icon: 'download-cloud'
+  color: 'green'
+
+inputs:
+  id:
+    description: 'App name, package identifier (e.g. org.telegram.messenger), or GitHub repo'
+    required: true
+  provider:
+    description: 'Target provider or comma-separated list of allowed providers (aptoide, apkmirror, apkpure, apkcombo, fdroid, izzyondroid, github, appgallery, all)'
+    required: false
+    default: 'all'
+  exclude-provider:
+    description: 'Comma-separated list of providers to exclude (e.g. appgallery,aptoide)'
+    required: false
+    default: ''
+  arch:
+    description: 'Target CPU architecture (arm64-v8a, armeabi-v7a, x86, x86_64, universal, auto, all)'
+    required: false
+    default: 'auto'
+  version:
+    description: 'Specific version string to download (e.g. 12.9.2) or "latest"'
+    required: false
+    default: 'latest'
+  channel:
+    description: 'Release channel: stable, beta, alpha, insider, preview, all'
+    required: false
+    default: 'stable'
+  allow-beta:
+    description: 'Whether to allow beta / preview / insider releases'
+    required: false
+    default: 'false'
+  output-dir:
+    description: 'Directory where the downloaded APK will be saved'
+    required: false
+    default: './downloads'
+  filename:
+    description: 'Custom output file name'
+    required: false
+    default: ''
+  verify-checksum:
+    description: 'Verify cryptographic checksums (SHA256/MD5) if available'
+    required: false
+    default: 'true'
+
+outputs:
+  file-path:
+    description: 'Absolute path to the downloaded APK/XAPK file'
+    value: ${{ steps.download.outputs.file_path }}
+  file-name:
+    description: 'File name of the downloaded APK'
+    value: ${{ steps.download.outputs.file_name }}
+  file-size:
+    description: 'Size of the downloaded file in bytes'
+    value: ${{ steps.download.outputs.file_size }}
+  file-size-formatted:
+    description: 'Formatted file size (e.g. 80.4 MB)'
+    value: ${{ steps.download.outputs.file_size_formatted }}
+  version:
+    description: 'Downloaded application version'
+    value: ${{ steps.download.outputs.version }}
+  package-type:
+    description: 'Package format (APK, XAPK, APKM)'
+    value: ${{ steps.download.outputs.package_type }}
+  sha256:
+    description: 'SHA-256 hash of the downloaded file'
+    value: ${{ steps.download.outputs.sha256 }}
+  provider:
+    description: 'Provider from which the APK was downloaded'
+    value: ${{ steps.download.outputs.provider }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js Environment
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - name: Setup Python for TLS Impersonation
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install curl_cffi Python Bridge
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip
+        pip install curl_cffi
+
+    - name: Execute APKDown Action Runner
+      id: download
+      shell: bash
+      env:
+        INPUT_ID: ${{ inputs.id }}
+        INPUT_PROVIDER: ${{ inputs.provider }}
+        INPUT_EXCLUDE_PROVIDER: ${{ inputs.exclude-provider }}
+        INPUT_ARCH: ${{ inputs.arch }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_CHANNEL: ${{ inputs.channel }}
+        INPUT_ALLOW_BETA: ${{ inputs.allow-beta }}
+        INPUT_OUTPUT_DIR: ${{ inputs.output-dir }}
+        INPUT_FILENAME: ${{ inputs.filename }}
+        INPUT_VERIFY_CHECKSUM: ${{ inputs.verify-checksum }}
+      run: |
+        node ${{ github.action_path }}/scripts/action-runner.js

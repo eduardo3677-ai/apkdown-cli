@@ -1,33 +1,100 @@
 # @eduardo3677-ai/apkdown-cli ⚡️
 
 [![NPM Version](https://img.shields.io/npm/v/@eduardo3677-ai/apkdown-cli.svg?color=339933&style=flat-square)](https://www.npmjs.com/package/@eduardo3677-ai/apkdown-cli)
+[![GitHub Marketplace](https://img.shields.io/badge/Marketplace-APKDown%20Action-blue.svg?colorA=24292e&colorB=0366d6&style=flat-square)](https://github.com/marketplace/actions/apkdown-multi-source-android-apk-downloader)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg?style=flat-square)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg?style=flat-square)](https://www.typescriptlang.org/)
 [![Build & Test](https://img.shields.io/github/actions/workflow/status/eduardo3677-ai/apkdown-cli/publish.yml?branch=main&style=flat-square)](https://github.com/eduardo3677-ai/apkdown-cli/actions)
 
-> **CLI profesional e Interfaz TUI interactiva para buscar, comparar versiones entre múltiples fuentes y descargar paquetes APK, XAPK, APKM y Split Bundles de Android con filtrado de arquitecturas de CPU y canales Beta / Preview / Insider.**
+> **CLI profesional, Interfaz TUI y GitHub Action para buscar, comparar versiones entre múltiples fuentes y descargar paquetes APK, XAPK, APKM y Split Bundles de Android con filtrado de arquitecturas de CPU y canales Beta / Preview / Insider.**
 
 ---
 
 ## 🌟 Características Principales
 
-- 🔄 **Comparación Automática Multi-Proveedor:** Si no especificas un proveedor, busca en todas las fuentes disponibles en paralelo, compara las versiones semver y descarga automáticamente la **versión más reciente**.
+- 🔄 **Comparación Automática Multi-Proveedor:** Si no especificas un proveedor, consulta todas las fuentes disponibles en paralelo, compara las versiones semver y descarga automáticamente la **versión más reciente**.
+- 🤖 **GitHub Action Oficial para Marketplace:** Descarga cualquier APK directamente en tus flujos de trabajo de CI/CD (`uses: eduardo3677-ai/apkdown-cli@v1`).
 - 🛡️ **8 Fuentes de APKs Integradas:** Conectores nativos para **Aptoide**, **APKMirror**, **APKPure**, **APKCombo**, **F-Droid**, **IzzyOnDroid**, **GitHub Releases** y **Huawei AppGallery**.
-- 🖥️ **Modo CLI y TUI Interactivo:** Úsalo mediante comandos directos en terminal o con una interfaz visual basada en `@clack/prompts`.
-- 🧬 **Filtrado por Arquitectura de CPU:** Soporte granular para `arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64` y `universal`.
+- 🚫 **Deshabilitación/Exclusión de Proveedores:** Opción `-x, --exclude` para excluir proveedores específicos (ej. `-x appgallery,aptoide`).
+- 🖥️ **Modo CLI y TUI Interactivo:** Úsalo mediante comandos directos en terminal o con una interfaz visual guiada por menús.
+- 🧬 **Filtrado por Arquitectura de CPU:** Soporte para `arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64` y `universal`.
 - 🚀 **Canales de Lanzamiento & Previews:** Descarga versiones **Estables**, **Betas**, **Alphas**, **Canary**, **Previews** e **Insiders**.
 - 🔒 **Evasión de Firewalls con TLS Fingerprint:** Capa híbrida con `curl_cffi` (impersonación de TLS Safari iOS y Chrome) para evitar bloqueos por Cloudflare.
-- 📦 **Manejo de Paquetes Complejos:** Soporte para archivos `.apk`, `.xapk`, `.apkm` y `.apks`.
-- 🔐 **Verificación de Integridad:** Comprobación automática de sumas de verificación criptográficas **SHA-256** y **MD5**.
+- 🔐 **Verificación Criptográfica:** Comprobación automática de sumas de verificación **SHA-256** y **MD5**.
 - 📊 **Progreso en Tiempo Real:** Barra de progreso con velocidad (MB/s), ETA y tamaño transferido.
-- 🧩 **Uso Programático:** Úsalo como librería en TypeScript / Node.js.
 
 ---
 
-## 📦 Instalación
+## 🤖 Uso en GitHub Actions (Marketplace)
 
-### Instalación Global (Recomendada)
+Puedes usar esta herramienta como un paso nativo en tus flujos de trabajo de GitHub Actions:
+
+```yaml
+name: Download Android APK
+
+on: [push, workflow_dispatch]
+
+jobs:
+  download-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download Latest Telegram APK
+        id: apkdown
+        uses: eduardo3677-ai/apkdown-cli@v1
+        with:
+          id: 'org.telegram.messenger'
+          provider: 'all'
+          exclude-provider: 'appgallery'
+          arch: 'arm64-v8a'
+          output-dir: './artifacts'
+
+      - name: Print Download Info
+        run: |
+          echo "Archivo descargado: ${{ steps.apkdown.outputs.file-path }}"
+          echo "Versión: ${{ steps.apkdown.outputs.version }}"
+          echo "SHA256: ${{ steps.apkdown.outputs.sha256 }}"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: telegram-apk
+          path: ${{ steps.apkdown.outputs.file-path }}
+```
+
+### Opciones del GitHub Action (`with`):
+
+| Entrada | Descripción | Por Defecto |
+|:---|:---|:---:|
+| `id` | Nombre de app, package identifier (ej. `com.whatsapp`, `org.telegram.messenger`) o repo | **Requerido** |
+| `provider` | Proveedores autorizados separados por coma (`all`, `apkmirror`, `apkpure`, etc.) | `all` |
+| `exclude-provider` | Proveedores a excluir separados por coma (ej. `appgallery,aptoide`) | `""` |
+| `arch` | Arquitectura de CPU objetivo (`auto`, `arm64-v8a`, `armeabi-v7a`, `universal`) | `auto` |
+| `version` | Versión específica a descargar o `"latest"` | `latest` |
+| `channel` | Canal de lanzamiento: `stable`, `beta`, `alpha`, `insider`, `preview`, `all` | `stable` |
+| `allow-beta` | Permitir versiones beta o previas (`true` / `false`) | `false` |
+| `output-dir` | Directorio de destino para guardar el APK | `./downloads` |
+| `filename` | Nombre de archivo personalizado | `""` |
+| `verify-checksum` | Verificar hash SHA256/MD5 si está disponible | `true` |
+
+### Salidas del GitHub Action (`outputs`):
+- `file-path`: Ruta absoluta del archivo descargado.
+- `file-name`: Nombre del archivo descargado.
+- `file-size`: Tamaño en bytes.
+- `file-size-formatted`: Tamaño legible (ej. `80.4 MB`).
+- `version`: Versión resuelta del paquete.
+- `package-type`: Formato (`APK`, `XAPK`, `APKM`).
+- `sha256`: Hash SHA-256 del binario.
+- `provider`: Proveedor de donde se descargó.
+
+---
+
+## 📦 Instalación del CLI
+
+### Instalación Global
 ```bash
 npm install -g @eduardo3677-ai/apkdown-cli
 ```
@@ -37,57 +104,25 @@ npm install -g @eduardo3677-ai/apkdown-cli
 npx @eduardo3677-ai/apkdown-cli search telegram
 ```
 
-### Como Dependencia en tu Proyecto
-```bash
-npm install @eduardo3677-ai/apkdown-cli
-```
-
 ---
 
-## 🚀 Uso Rápido
+## 🚀 Ejemplos de Comandos CLI
 
-### 1. Interfaz Interactiva (TUI)
-Inicia el asistente interactivo guiado por menús:
 ```bash
+# 1. Iniciar interfaz interactiva TUI
 apkdown tui
-# o también:
-apkdown
-```
 
-### 2. Descarga Automática de la Última Versión
-Si no especificas `-p`, la herramienta consulta todas las fuentes, muestra una tabla comparativa y descarga la versión más actualizada:
-```bash
-apkdown download org.telegram.messenger
-```
+# 2. Descarga automática de la última versión comparando todos los proveedores
+apkdown download org.telegram.messenger -o ./mis-apks
 
-### 3. Búsqueda de Aplicaciones
-```bash
-# Buscar en todos los proveedores
-apkdown search spotify
+# 3. Descargar excluyendo proveedores específicos
+apkdown download telegram -x appgallery,aptoide -a arm64-v8a -o ./mis-apks
 
-# Buscar en un proveedor específico
-apkdown search spotify -p apkmirror -l 5
+# 4. Buscar aplicaciones con filtro de arquitectura y canal Beta
+apkdown search telegram -p apkmirror,apkpure -a arm64-v8a -b -l 5
 
-# Incluir versiones Beta
-apkdown search telegram -b
-```
-
-### 4. Descarga con Opciones Avanzadas
-```bash
-# Descargar versión Beta en arquitectura ARM64 desde APKMirror
-apkdown download telegram -p apkmirror --channel beta -a arm64-v8a -o ./mis-apks
-
-# Descargar desde F-Droid con verificación SHA-256
-apkdown download org.fdroid.fdroid -p fdroid -o ./downloads
-
-# Descargar desde GitHub Releases (open source)
-apkdown download revanced -p github -o ./mis-apks
-```
-
-### 5. Consultar Detalles y Variantes
-```bash
-apkdown info org.videolan.vlc
-apkdown versions com.whatsapp -p apkpure
+# 5. Ver detalles, metadatos y variantes de CPU
+apkdown info org.videolan.vlc -p fdroid -a arm64-v8a
 ```
 
 ---
@@ -107,33 +142,6 @@ apkdown versions com.whatsapp -p apkpure
 
 ---
 
-## 🛠️ Comandos de la CLI
-
-```
-Uso: apkdown [comando] [opciones]
-
-Comandos:
-  search <query>          Busca aplicaciones en los proveedores
-  download <app>          Descarga un APK o bundle
-  info <app>              Muestra metadatos y lista de variantes
-  versions <app>          Lista versiones históricas y actuales
-  providers               Muestra la lista de proveedores y su estado
-  config                  Ver o modificar configuración persistente
-  tui                     Inicia la interfaz de terminal interactiva
-
-Opciones de Descarga:
-  -p, --provider <name>   Proveedor a utilizar (por defecto: all)
-  -v, --version <string>  Versión específica o "latest"
-  -a, --arch <arch>       Arquitectura: arm64-v8a, armeabi-v7a, x86_64, universal
-  -c, --channel <chan>    Canal: stable, beta, alpha, insider, preview, all
-  -b, --beta              Habilitar versiones beta
-  -o, --output <dir>      Directorio de salida
-  -f, --force             Sobrescribir archivos existentes
-  --no-verify             Omitir verificación criptográfica
-```
-
----
-
 ## 💻 Uso Programático (API TypeScript / Node.js)
 
 ```typescript
@@ -144,18 +152,15 @@ import {
   compareVersions
 } from '@eduardo3677-ai/apkdown-cli';
 
-// 1. Buscar en todos los proveedores
+// Buscar y comparar versiones en todos los proveedores
 const results = await searchApks({
   query: 'telegram',
+  excludeProviders: ['appgallery'],
+  arch: 'arm64-v8a',
   limit: 5,
-  includeBeta: true,
 });
 
-// 2. Obtener detalles y variantes
-const details = await getAppDetails('apkmirror', 'telegram');
-console.log('Variantes encontradas:', details.variants.length);
-
-// 3. Descargar comparando automáticamente la última versión
+// Descargar comparando automáticamente la última versión
 const downloadResult = await downloadApk('all', 'org.telegram.messenger', {
   preferredArch: 'arm64-v8a',
   allowBeta: true,
@@ -167,52 +172,6 @@ const downloadResult = await downloadApk('all', 'org.telegram.messenger', {
 
 console.log('Descargado en:', downloadResult.filePath);
 console.log('SHA-256:', downloadResult.sha256);
-```
-
----
-
-## 🏗️ Estructura del Proyecto
-
-```
-apkdown-cli/
-├── src/
-│   ├── bin/cli.ts             # Punto de entrada ejecutable CLI
-│   ├── cli/
-│   │   ├── commands/          # Comandos Commander (search, download, info, etc.)
-│   │   └── ui/                # UI helpers (tablas, barras de progreso, logger)
-│   ├── core/
-│   │   ├── config.ts          # Gestor de configuración persistente
-│   │   ├── downloader.ts      # Motor de selección, streaming y verificación de APKs
-│   │   ├── errors.ts          # Jerarquía de errores tipados
-│   │   └── types.ts           # Modelos de dominio e interfaces TypeScript
-│   ├── http/
-│   │   ├── client.ts          # Interfaz HttpClient
-│   │   ├── curl-client.ts     # Puente Python curl_cffi con TLS impersonation
-│   │   ├── fetch-client.ts    # Cliente fetch nativo con streaming
-│   │   └── hybrid-client.ts   # Router inteligente de peticiones
-│   ├── providers/             # Implementación modular de los 8 proveedores
-│   ├── tui/                   # Pantallas interactivas TUI (@clack/prompts)
-│   ├── utils/                 # Utilidades (arch, hash, formatting, semver)
-│   └── index.ts               # Exportaciones de librería pública
-├── scripts/
-│   └── curl_bridge.py         # Subproceso bridge de curl_cffi
-├── tests/                     # Suite de pruebas unitarias Vitest
-└── .github/workflows/         # CI/CD y publicación automatizada en NPM
-```
-
----
-
-## 🧪 Pruebas Unitarias
-
-```bash
-# Ejecutar tests con Vitest
-npm test
-
-# Verificación de tipos TypeScript
-npm run typecheck
-
-# Compilación con tsup
-npm run build
 ```
 
 ---
